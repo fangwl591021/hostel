@@ -630,6 +630,83 @@ function normalizeLineMessages(input) {
   return [{ type: 'text', text }];
 }
 
+function buildBroadcastRecipientQuery(filters = {}) {
+  const clauses = ["source_user_id <> ''"];
+  const values = [];
+  const status = String(filters.status || '').trim();
+  const risk = String(filters.risk || '').trim();
+  const gender = String(filters.gender || '').trim();
+  const area = String(filters.area || '').trim();
+  const tag = String(filters.tag || '').trim();
+  const keyword = String(filters.keyword || '').trim();
+  const activeDays = Number(filters.activeDays || filters.active_days || 0);
+  const limit = Math.max(0, Math.min(Number(filters.limit || 0) || 0, 50000));
+
+  if (status && status !== 'all') {
+    clauses.push('status = ?');
+    values.push(status);
+  }
+  if (risk && risk !== 'all') {
+    clauses.push('risk_level = ?');
+    values.push(risk);
+  }
+  if (gender && gender !== 'all') {
+    clauses.push('inferred_gender = ?');
+    values.push(gender);
+  }
+  if (area) {
+    clauses.push('(inferred_area LIKE ? OR location_address LIKE ? OR summary LIKE ? OR tags LIKE ?)');
+    values.push(`%${area}%`, `%${area}%`, `%${area}%`, `%${area}%`);
+  }
+  if (tag) {
+    clauses.push('tags LIKE ?');
+    values.push(`%${tag}%`);
+  }
+  if (keyword) {
+    clauses.push('(display_name LIKE ? OR summary LIKE ? OR tags LIKE ?)');
+    values.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+  }
+  if (activeDays > 0) {
+    clauses.push("last_message_at >= ?");
+    values.push(new Date(Date.now() - activeDays * 24 * 60 * 60 * 1000).toISOString());
+  }
+
+  return {
+    sql: `
+      SELECT source_user_id, display_name
+      FROM line_threads
+      WHERE ${clauses.join(' AND ')}
+      GROUP BY source_user_id
+      ORDER BY MAX(COALESCE(last_message_at, created_at)) DESC
+      ${limit > 0 ? `LIMIT ${limit}` : ''}
+    `,
+    values,
+  };
+}
+
+async function previewBroadcastRecipients(env, body = {}) {
+  const uid = String(body.uid || '').trim();
+  if (!ADMIN_UIDS.has(uid)) return { success: false, error: 'FORBIDDEN' };
+  const customUserIds = Array.isArray(body.userIds)
+    ? body.userIds.map(v => String(v || '').trim()).filter(Boolean)
+    : [];
+  if (customUserIds.length) {
+    return { success: true, data: { count: [...new Set(customUserIds)].length, sample: [] } };
+  }
+  const query = buildBroadcastRecipientQuery(body.filters || {});
+  const { results } = await env.DB.prepare(query.sql).bind(...query.values).all();
+  return {
+    success: true,
+    data: {
+      count: (results || []).length,
+      sample: (results || []).slice(0, 10).map(row => ({
+        userId: row.source_user_id,
+        name: row.display_name || '',
+      })),
+    },
+  };
+}
+
 async function createBroadcastJob(env, body = {}) {
   if (!env.DB) throw new Error('D1 binding missing');
   const uid = String(body.uid || '').trim();
@@ -647,19 +724,16 @@ async function createBroadcastJob(env, body = {}) {
   const customUserIds = Array.isArray(body.userIds)
     ? body.userIds.map(v => String(v || '').trim()).filter(Boolean)
     : [];
-  const recipientRows = customUserIds.length
-    ? customUserIds.map(userId => ({ source_user_id: userId, display_name: '' }))
-    : (await env.DB.prepare(`
-        SELECT source_user_id, display_name
-        FROM line_threads
-        WHERE source_user_id <> ''
-        GROUP BY source_user_id
-        ORDER BY MAX(COALESCE(last_message_at, created_at)) DESC
-      `).all()).results || [];
+  let resolvedRecipientRows = customUserIds.map(userId => ({ source_user_id: userId, display_name: '' }));
+  if (!customUserIds.length) {
+    const query = buildBroadcastRecipientQuery(body.filters || {});
+    const result = await env.DB.prepare(query.sql).bind(...query.values).all();
+    resolvedRecipientRows = result.results || [];
+  }
 
   const uniqueRecipients = [];
   const seen = new Set();
-  for (const row of recipientRows) {
+  for (const row of resolvedRecipientRows) {
     const userId = String(row.source_user_id || '').trim();
     if (!userId || seen.has(userId)) continue;
     seen.add(userId);
@@ -988,6 +1062,11 @@ export default {
       if (url.pathname === '/api/broadcast/jobs' && request.method === 'POST') {
         const body = await request.json();
         const result = await createBroadcastJob(env, body);
+        return json(result, result.success ? 200 : 400);
+      }
+      if (url.pathname === '/api/broadcast/preview' && request.method === 'POST') {
+        const body = await request.json();
+        const result = await previewBroadcastRecipients(env, body);
         return json(result, result.success ? 200 : 400);
       }
       if (url.pathname === '/api/broadcast/job' && request.method === 'POST') {

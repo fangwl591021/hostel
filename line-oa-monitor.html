@@ -86,6 +86,59 @@
         </div>
       </section>
       <section class="rounded-2xl border border-slate-200 p-4">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <h2 class="text-xl font-black">分時推播</h2>
+          <button id="broadcast-refresh" type="button" class="rounded-xl bg-slate-100 text-slate-700 px-3 py-2 text-xs font-bold">更新</button>
+        </div>
+        <div class="space-y-3">
+          <input id="broadcast-title" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="推播名稱，例如：端午住房提醒">
+          <textarea id="broadcast-text" rows="4" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="輸入要推播的文字"></textarea>
+          <select id="broadcast-mode" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-emerald-500">
+            <option value="all">全部好友</option>
+            <option value="active7">近 7 天互動</option>
+            <option value="active30">近 30 天互動</option>
+            <option value="area">指定地區</option>
+            <option value="gender">性別線索</option>
+            <option value="risk">風險名單</option>
+            <option value="tag">標籤名單</option>
+            <option value="keyword">關鍵字搜尋</option>
+            <option value="custom">指定 LINE userId</option>
+          </select>
+          <div class="grid grid-cols-2 gap-2">
+            <input id="broadcast-area" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="地區">
+            <select id="broadcast-gender" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500">
+              <option value="all">性別不限</option>
+              <option value="女性線索">女性線索</option>
+              <option value="男性線索">男性線索</option>
+              <option value="未判定">未判定</option>
+            </select>
+            <select id="broadcast-risk" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500">
+              <option value="all">風險不限</option>
+              <option value="high">高風險</option>
+              <option value="medium">中風險</option>
+              <option value="low">低風險</option>
+            </select>
+            <select id="broadcast-status" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500">
+              <option value="all">狀態不限</option>
+              <option value="open">待回覆</option>
+              <option value="pending">追蹤中</option>
+              <option value="closed">已結案</option>
+            </select>
+            <input id="broadcast-tag" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="標籤">
+            <input id="broadcast-keyword" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="姓名/摘要關鍵字">
+            <input id="broadcast-batch" type="number" min="1" max="500" value="100" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="每批人數">
+            <input id="broadcast-interval" type="number" min="30" max="3600" value="60" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="間隔秒數">
+          </div>
+          <textarea id="broadcast-userids" rows="3" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500" placeholder="指定 userId，一行一個。只有選指定名單時使用"></textarea>
+          <div class="flex gap-2">
+            <button id="broadcast-preview" type="button" class="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold">預覽人數</button>
+            <button id="broadcast-create" type="button" class="flex-1 rounded-xl bg-slate-900 text-white px-3 py-2 text-sm font-bold">建立排程</button>
+          </div>
+          <div id="broadcast-preview-result" class="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-600">尚未預覽</div>
+          <div id="broadcast-jobs" class="space-y-2"></div>
+        </div>
+      </section>
+      <section class="rounded-2xl border border-slate-200 p-4">
         <h2 class="text-xl font-black mb-3">建議回覆</h2>
         <div id="reply-panel" class="space-y-3 text-sm leading-7 text-slate-700"></div>
       </section>
@@ -311,6 +364,126 @@
       }
     }
 
+    function broadcastUserIds() {
+      return el('broadcast-userids').value
+        .split(/\s+/)
+        .map(v => v.trim())
+        .filter(Boolean);
+    }
+
+    function broadcastFilters() {
+      const mode = el('broadcast-mode').value;
+      const filters = {
+        status: el('broadcast-status').value,
+        risk: el('broadcast-risk').value,
+        gender: el('broadcast-gender').value,
+        area: el('broadcast-area').value.trim(),
+        tag: el('broadcast-tag').value.trim(),
+        keyword: el('broadcast-keyword').value.trim(),
+      };
+      if (mode === 'active7') filters.activeDays = 7;
+      if (mode === 'active30') filters.activeDays = 30;
+      if (mode === 'area' && !filters.area) throw new Error('請輸入地區');
+      if (mode === 'gender' && filters.gender === 'all') throw new Error('請選擇性別線索');
+      if (mode === 'risk' && filters.risk === 'all') filters.risk = 'high';
+      if (mode === 'tag' && !filters.tag) throw new Error('請輸入標籤');
+      if (mode === 'keyword' && !filters.keyword) throw new Error('請輸入關鍵字');
+      if (mode === 'all') {
+        filters.status = 'all';
+        filters.risk = 'all';
+        filters.gender = 'all';
+        filters.area = '';
+        filters.tag = '';
+        filters.keyword = '';
+      }
+      return filters;
+    }
+
+    function renderBroadcastJobs(jobs = []) {
+      const wrap = el('broadcast-jobs');
+      if (!jobs.length) {
+        wrap.innerHTML = '<p class="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-400">目前沒有推播排程</p>';
+        return;
+      }
+      wrap.innerHTML = jobs.map(job => {
+        const total = Number(job.totalRecipients || 0);
+        const sent = Number(job.sentCount || 0);
+        const failed = Number(job.failedCount || 0);
+        const pct = total ? Math.min(100, Math.round((sent + failed) / total * 100)) : 0;
+        const controls = job.status === 'paused'
+          ? `<button data-id="${job.id}" data-action="resume" class="broadcast-job-action rounded-lg bg-emerald-500 text-white px-2 py-1 text-xs font-bold">繼續</button>`
+          : `<button data-id="${job.id}" data-action="pause" class="broadcast-job-action rounded-lg bg-slate-100 text-slate-700 px-2 py-1 text-xs font-bold">暫停</button>`;
+        return `
+          <div class="rounded-xl border border-slate-200 p-3 text-sm">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <b class="block truncate">${job.title}</b>
+                <span class="text-xs text-slate-400">${job.status} · ${sent}/${total} 已送 · ${failed} 失敗</span>
+              </div>
+              <div class="flex gap-1">
+                ${['completed', 'cancelled'].includes(job.status) ? '' : controls}
+                ${['completed', 'cancelled'].includes(job.status) ? '' : `<button data-id="${job.id}" data-action="cancel" class="broadcast-job-action rounded-lg bg-rose-50 text-rose-700 px-2 py-1 text-xs font-bold">取消</button>`}
+              </div>
+            </div>
+            <div class="h-2 bg-slate-100 rounded-full overflow-hidden mt-2"><div class="h-full bg-emerald-500" style="width:${pct}%"></div></div>
+            <p class="text-xs text-slate-400 mt-2">下次執行：${formatTime(job.nextRunAt) || '-'}</p>
+          </div>
+        `;
+      }).join('');
+      document.querySelectorAll('.broadcast-job-action').forEach(btn => btn.addEventListener('click', () => updateBroadcastJob(btn.dataset.id, btn.dataset.action).catch(err => toast(err.message))));
+    }
+
+    async function loadBroadcastJobs() {
+      const data = await fetchJson(`${WORKER_URL}/api/broadcast/jobs?uid=${encodeURIComponent(profile.userId)}`);
+      renderBroadcastJobs(data.data || []);
+    }
+
+    async function previewBroadcast() {
+      const userIds = el('broadcast-mode').value === 'custom' ? broadcastUserIds() : [];
+      if (el('broadcast-mode').value === 'custom' && !userIds.length) throw new Error('請貼上 userId 名單');
+      const data = await fetchJson(`${WORKER_URL}/api/broadcast/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: profile.userId, filters: broadcastFilters(), userIds }),
+      });
+      const sample = (data.data.sample || []).map(item => item.name || item.userId).filter(Boolean).slice(0, 5).join('、');
+      el('broadcast-preview-result').textContent = `符合 ${data.data.count || 0} 人${sample ? `，樣本：${sample}` : ''}`;
+      return data.data.count || 0;
+    }
+
+    async function createBroadcast() {
+      const text = el('broadcast-text').value.trim();
+      if (!text) throw new Error('請輸入推播文字');
+      const count = await previewBroadcast();
+      if (!count) throw new Error('沒有符合條件的收件者');
+      const userIds = el('broadcast-mode').value === 'custom' ? broadcastUserIds() : [];
+      const data = await fetchJson(`${WORKER_URL}/api/broadcast/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: profile.userId,
+          title: el('broadcast-title').value.trim() || `分時推播 ${formatTime(new Date().toISOString())}`,
+          message: text,
+          filters: broadcastFilters(),
+          userIds,
+          batchSize: el('broadcast-batch').value,
+          intervalSeconds: el('broadcast-interval').value,
+        }),
+      });
+      toast(`已建立 ${data.data.totalRecipients} 人的分時推播`);
+      await loadBroadcastJobs();
+    }
+
+    async function updateBroadcastJob(id, action) {
+      await fetchJson(`${WORKER_URL}/api/broadcast/job`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: profile.userId, id, action }),
+      });
+      toast('推播狀態已更新');
+      await loadBroadcastJobs();
+    }
+
     async function updateActive(patch) {
       if (!activeId) return;
       const active = threads.find(t => t.id === activeId);
@@ -332,6 +505,16 @@
     }));
     el('search').addEventListener('input', renderThreads);
     el('sync-now').addEventListener('click', () => syncNow());
+    el('broadcast-refresh').addEventListener('click', () => loadBroadcastJobs().catch(err => toast(err.message)));
+    el('broadcast-preview').addEventListener('click', () => previewBroadcast().catch(err => toast(err.message)));
+    el('broadcast-create').addEventListener('click', () => createBroadcast().catch(err => toast(err.message)));
+    el('broadcast-mode').addEventListener('change', () => {
+      const mode = el('broadcast-mode').value;
+      if (mode === 'active7') el('broadcast-preview-result').textContent = '模式：近 7 天互動名單';
+      else if (mode === 'active30') el('broadcast-preview-result').textContent = '模式：近 30 天互動名單';
+      else if (mode === 'custom') el('broadcast-preview-result').textContent = '模式：指定 userId 名單';
+      else el('broadcast-preview-result').textContent = '請先預覽符合條件的人數';
+    });
     el('mark-open').addEventListener('click', () => updateActive({ status: 'open' }).catch(err => toast(err.message)));
     el('mark-pending').addEventListener('click', () => updateActive({ status: 'pending' }).catch(err => toast(err.message)));
     el('mark-closed').addEventListener('click', () => updateActive({ status: 'closed' }).catch(err => toast(err.message)));
@@ -352,6 +535,7 @@
       }
       el('sync-now').disabled = false;
       await loadAudience();
+      await loadBroadcastJobs();
       await loadThreads();
     }
     init().catch(err => {
