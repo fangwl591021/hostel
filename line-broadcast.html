@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hostel LINE 分時推播</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, "Noto Sans TC", sans-serif; background:#eef3f8; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-900">
+  <div class="min-h-screen flex flex-col">
+    <header class="bg-white border-b border-slate-200">
+      <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+        <div>
+          <h1 class="text-3xl font-black">LINE 分時推播</h1>
+          <p class="text-sm text-slate-500 mt-1">先選受眾、預覽人數，再建立分批排程。</p>
+        </div>
+        <div class="flex gap-2">
+          <a href="/monitor" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">聊天室監控</a>
+          <button id="refresh-jobs" type="button" class="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-bold">更新排程</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto w-full px-6 py-6 grid grid-cols-[320px_1fr_360px] gap-5">
+      <aside class="space-y-4">
+        <section class="bg-white border border-slate-200 rounded-2xl p-4">
+          <h2 class="text-lg font-black mb-3">發送模式</h2>
+          <div id="mode-list" class="space-y-2">
+            <button data-mode="all" class="mode-btn w-full rounded-xl bg-slate-900 text-white px-4 py-3 text-left font-bold">全部好友</button>
+            <button data-mode="active7" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">近 7 天互動</button>
+            <button data-mode="active30" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">近 30 天互動</button>
+            <button data-mode="area" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">指定地區</button>
+            <button data-mode="gender" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">性別線索</button>
+            <button data-mode="risk" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">高風險名單</button>
+            <button data-mode="tag" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">標籤名單</button>
+            <button data-mode="keyword" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">關鍵字搜尋</button>
+            <button data-mode="custom" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">指定 userId</button>
+          </div>
+        </section>
+        <section class="bg-white border border-slate-200 rounded-2xl p-4">
+          <h2 class="text-lg font-black mb-3">分批安全值</h2>
+          <div class="space-y-3">
+            <label class="block text-sm font-bold text-slate-600">每批人數
+              <input id="batch-size" type="number" min="1" max="500" value="100" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-emerald-500">
+            </label>
+            <label class="block text-sm font-bold text-slate-600">每批間隔秒數
+              <input id="interval-seconds" type="number" min="30" max="3600" value="60" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-emerald-500">
+            </label>
+            <p class="text-xs leading-5 text-slate-500">建議破萬名單先用 100 人/60 秒，確認 LINE API 與母站負載穩定後再調高。</p>
+          </div>
+        </section>
+      </aside>
+
+      <section class="space-y-4">
+        <div class="bg-white border border-slate-200 rounded-2xl p-5">
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <h2 class="text-xl font-black">推播內容</h2>
+            <span id="current-mode" class="rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 text-xs font-bold">全部好友</span>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block text-sm font-bold text-slate-600 col-span-2">排程名稱
+              <input id="job-title" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="例如：暑假住房優惠第一波">
+            </label>
+            <label class="block text-sm font-bold text-slate-600 col-span-2">推播文字
+              <textarea id="message-text" rows="8" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="輸入要送出的 LINE 文字訊息"></textarea>
+            </label>
+          </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-5">
+          <h2 class="text-xl font-black mb-4">受眾條件</h2>
+          <div class="grid grid-cols-3 gap-3">
+            <label class="block text-sm font-bold text-slate-600">狀態
+              <select id="filter-status" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+                <option value="all">不限</option>
+                <option value="open">待回覆</option>
+                <option value="pending">追蹤中</option>
+                <option value="closed">已結案</option>
+              </select>
+            </label>
+            <label class="block text-sm font-bold text-slate-600">風險
+              <select id="filter-risk" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+                <option value="all">不限</option>
+                <option value="high">高風險</option>
+                <option value="medium">中風險</option>
+                <option value="low">低風險</option>
+              </select>
+            </label>
+            <label class="block text-sm font-bold text-slate-600">性別線索
+              <select id="filter-gender" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+                <option value="all">不限</option>
+                <option value="女性線索">女性線索</option>
+                <option value="男性線索">男性線索</option>
+                <option value="未判定">未判定</option>
+              </select>
+            </label>
+            <label class="block text-sm font-bold text-slate-600">地區
+              <input id="filter-area" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="台南、安平、永康">
+            </label>
+            <label class="block text-sm font-bold text-slate-600">標籤
+              <input id="filter-tag" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="親子、包棟、回訪">
+            </label>
+            <label class="block text-sm font-bold text-slate-600">關鍵字
+              <input id="filter-keyword" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="姓名、摘要或標籤">
+            </label>
+            <label class="block text-sm font-bold text-slate-600">近幾天互動
+              <input id="filter-active-days" type="number" min="0" value="0" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+            </label>
+            <label class="block text-sm font-bold text-slate-600">最多收件者
+              <input id="filter-limit" type="number" min="0" max="50000" value="0" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="0 表示不限">
+            </label>
+            <label class="block text-sm font-bold text-slate-600">指定名單
+              <span class="block mt-1 rounded-xl bg-slate-50 border border-slate-200 px-3 py-3 text-slate-500">只在 userId 模式啟用</span>
+            </label>
+            <label class="block text-sm font-bold text-slate-600 col-span-3">指定 LINE userId，一行一個
+              <textarea id="custom-userids" rows="5" class="mt-1 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="Uxxxxxxxxxxxxxxxx"></textarea>
+            </label>
+          </div>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-2xl p-5">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <h2 class="text-xl font-black">收件者預覽</h2>
+              <p id="preview-summary" class="text-sm text-slate-500 mt-1">尚未預覽</p>
+            </div>
+            <div class="flex gap-2">
+              <button id="preview-btn" type="button" class="rounded-xl border border-slate-300 px-5 py-3 font-bold">預覽人數</button>
+              <button id="create-btn" type="button" class="rounded-xl bg-slate-900 text-white px-5 py-3 font-bold">建立分時排程</button>
+            </div>
+          </div>
+          <div id="preview-sample" class="mt-4 grid grid-cols-2 gap-2"></div>
+        </div>
+      </section>
+
+      <aside class="space-y-4">
+        <section class="bg-white border border-slate-200 rounded-2xl p-4">
+          <h2 class="text-lg font-black mb-3">排程狀態</h2>
+          <div id="jobs-list" class="space-y-3"></div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <div id="toast" hidden class="fixed top-4 left-1/2 -translate-x-1/2 rounded-2xl bg-slate-900 text-white px-5 py-3 font-semibold shadow-xl"></div>
+
+  <script>
+    const WORKER_URL = 'https://hotel.fangwl591021.workers.dev';
+    const ADMIN_UID = 'Uf729764dbb5b652a5a90a467320bea29';
+    const MODE_LABELS = {
+      all: '全部好友',
+      active7: '近 7 天互動',
+      active30: '近 30 天互動',
+      area: '指定地區',
+      gender: '性別線索',
+      risk: '高風險名單',
+      tag: '標籤名單',
+      keyword: '關鍵字搜尋',
+      custom: '指定 userId',
+    };
+    let mode = 'all';
+
+    const el = id => document.getElementById(id);
+
+    function toast(text) {
+      const node = el('toast');
+      node.hidden = false;
+      node.textContent = text;
+      setTimeout(() => { node.hidden = true; }, 1800);
+    }
+
+    function formatTime(value) {
+      if (!value) return '';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return value;
+      return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
+    async function fetchJson(url, options) {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function setMode(nextMode) {
+      mode = nextMode;
+      el('current-mode').textContent = MODE_LABELS[mode] || mode;
+      document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.className = btn.dataset.mode === mode
+          ? 'mode-btn w-full rounded-xl bg-slate-900 text-white px-4 py-3 text-left font-bold'
+          : 'mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold';
+      });
+      if (mode === 'active7') el('filter-active-days').value = 7;
+      if (mode === 'active30') el('filter-active-days').value = 30;
+      if (mode === 'risk') el('filter-risk').value = 'high';
+      el('preview-summary').textContent = `已切換：${MODE_LABELS[mode]}，請重新預覽。`;
+      el('preview-sample').innerHTML = '';
+    }
+
+    function getUserIds() {
+      return el('custom-userids').value.split(/\s+/).map(v => v.trim()).filter(Boolean);
+    }
+
+    function getFilters() {
+      const filters = {
+        status: el('filter-status').value,
+        risk: el('filter-risk').value,
+        gender: el('filter-gender').value,
+        area: el('filter-area').value.trim(),
+        tag: el('filter-tag').value.trim(),
+        keyword: el('filter-keyword').value.trim(),
+        activeDays: Number(el('filter-active-days').value || 0),
+        limit: Number(el('filter-limit').value || 0),
+      };
+      if (mode === 'all') {
+        filters.status = 'all';
+        filters.risk = 'all';
+        filters.gender = 'all';
+        filters.area = '';
+        filters.tag = '';
+        filters.keyword = '';
+        filters.activeDays = 0;
+      }
+      if (mode === 'active7') filters.activeDays = 7;
+      if (mode === 'active30') filters.activeDays = 30;
+      if (mode === 'area' && !filters.area) throw new Error('請輸入地區');
+      if (mode === 'gender' && filters.gender === 'all') throw new Error('請選擇性別線索');
+      if (mode === 'tag' && !filters.tag) throw new Error('請輸入標籤');
+      if (mode === 'keyword' && !filters.keyword) throw new Error('請輸入關鍵字');
+      if (mode === 'risk' && filters.risk === 'all') filters.risk = 'high';
+      return filters;
+    }
+
+    function renderPreview(data) {
+      const count = Number(data.count || 0);
+      const sample = data.sample || [];
+      el('preview-summary').textContent = `符合 ${count} 人。建立排程後會依設定分批送出，不會一次打滿。`;
+      el('preview-sample').innerHTML = sample.length
+        ? sample.map(item => `<div class="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-sm"><b class="block truncate">${item.name || '未命名'}</b><span class="text-xs text-slate-400 truncate block">${item.userId}</span></div>`).join('')
+        : '<p class="col-span-2 text-sm text-slate-400">沒有樣本資料。</p>';
+    }
+
+    async function previewRecipients() {
+      const userIds = mode === 'custom' ? getUserIds() : [];
+      if (mode === 'custom' && !userIds.length) throw new Error('請貼上 userId 名單');
+      const data = await fetchJson(`${WORKER_URL}/api/broadcast/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: ADMIN_UID, filters: getFilters(), userIds }),
+      });
+      renderPreview(data.data || {});
+      return Number(data.data?.count || 0);
+    }
+
+    async function createJob() {
+      const text = el('message-text').value.trim();
+      if (!text) throw new Error('請輸入推播文字');
+      const count = await previewRecipients();
+      if (!count) throw new Error('沒有符合條件的收件者');
+      const data = await fetchJson(`${WORKER_URL}/api/broadcast/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: ADMIN_UID,
+          title: el('job-title').value.trim() || `LINE 分時推播 ${formatTime(new Date().toISOString())}`,
+          message: text,
+          filters: getFilters(),
+          userIds: mode === 'custom' ? getUserIds() : [],
+          batchSize: Number(el('batch-size').value || 100),
+          intervalSeconds: Number(el('interval-seconds').value || 60),
+        }),
+      });
+      toast(`已建立 ${data.data.totalRecipients} 人的排程`);
+      await loadJobs();
+    }
+
+    function renderJobs(jobs = []) {
+      if (!jobs.length) {
+        el('jobs-list').innerHTML = '<p class="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-400">目前沒有推播排程。</p>';
+        return;
+      }
+      el('jobs-list').innerHTML = jobs.map(job => {
+        const total = Number(job.totalRecipients || 0);
+        const sent = Number(job.sentCount || 0);
+        const failed = Number(job.failedCount || 0);
+        const pct = total ? Math.min(100, Math.round((sent + failed) / total * 100)) : 0;
+        return `
+          <div class="rounded-xl border border-slate-200 p-3">
+            <div class="flex justify-between gap-2">
+              <div class="min-w-0">
+                <b class="block truncate">${job.title}</b>
+                <span class="text-xs text-slate-400">${job.status} · ${sent}/${total} 已送 · ${failed} 失敗</span>
+              </div>
+            </div>
+            <div class="h-2 bg-slate-100 rounded-full overflow-hidden mt-3"><div class="h-full bg-emerald-500" style="width:${pct}%"></div></div>
+            <p class="text-xs text-slate-400 mt-2">下次執行：${formatTime(job.nextRunAt) || '-'}</p>
+            <div class="flex gap-2 mt-3">
+              ${job.status === 'paused'
+                ? `<button class="job-action rounded-lg bg-emerald-500 text-white px-3 py-2 text-xs font-bold" data-id="${job.id}" data-action="resume">繼續</button>`
+                : `<button class="job-action rounded-lg bg-slate-100 text-slate-700 px-3 py-2 text-xs font-bold" data-id="${job.id}" data-action="pause">暫停</button>`}
+              <button class="job-action rounded-lg bg-rose-50 text-rose-700 px-3 py-2 text-xs font-bold" data-id="${job.id}" data-action="cancel">取消</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      document.querySelectorAll('.job-action').forEach(btn => btn.addEventListener('click', () => updateJob(btn.dataset.id, btn.dataset.action).catch(err => toast(err.message))));
+    }
+
+    async function loadJobs() {
+      const data = await fetchJson(`${WORKER_URL}/api/broadcast/jobs?uid=${encodeURIComponent(ADMIN_UID)}`);
+      renderJobs(data.data || []);
+    }
+
+    async function updateJob(id, action) {
+      await fetchJson(`${WORKER_URL}/api/broadcast/job`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: ADMIN_UID, id, action }),
+      });
+      toast('排程狀態已更新');
+      await loadJobs();
+    }
+
+    document.querySelectorAll('.mode-btn').forEach(btn => btn.addEventListener('click', () => setMode(btn.dataset.mode)));
+    el('preview-btn').addEventListener('click', () => previewRecipients().catch(err => toast(err.message)));
+    el('create-btn').addEventListener('click', () => createJob().catch(err => toast(err.message)));
+    el('refresh-jobs').addEventListener('click', () => loadJobs().catch(err => toast(err.message)));
+    loadJobs().catch(err => toast(err.message));
+  </script>
+</body>
+</html>

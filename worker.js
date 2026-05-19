@@ -985,11 +985,11 @@ function renderHubHtml(status, origin) {
 </head><body><main class="wrap"><h1>Hostel 雙 Webhook 診斷</h1><p>LINE Webhook URL：<code>${origin}/line-webhook</code></p><div class="card">${row('母站 Webhook', status.gas)}${row('第二系統', status.forward)}${row('LINE Bot Token', status.line)}<p>MOTHER_WEBHOOK_URL: ${status.config.hasMotherWebhookUrl ? 'configured' : 'missing'} · LINE_CHANNEL_SECRET: ${status.config.hasLineSecret ? 'configured' : 'missing'} · LINE_CHANNEL_ACCESS_TOKEN: ${status.config.hasLineToken ? 'configured' : 'missing'}</p></div></main></body></html>`;
 }
 
-async function serveMonitorPage() {
-  const res = await fetch(`https://raw.githubusercontent.com/fangwl591021/hostel/main/line-oa-monitor.html?v=${Date.now()}`, {
+async function serveGithubHtml(filename) {
+  const res = await fetch(`https://raw.githubusercontent.com/fangwl591021/hostel/main/${filename}?v=${Date.now()}`, {
     cf: { cacheTtl: 0, cacheEverything: false },
   });
-  if (!res.ok) return json({ success: false, error: `MONITOR_PAGE_FETCH_FAILED_${res.status}` }, 502);
+  if (!res.ok) return json({ success: false, error: `HTML_PAGE_FETCH_FAILED_${res.status}` }, 502);
   const html = await res.text();
   return new Response(html, {
     headers: {
@@ -1013,7 +1013,10 @@ export default {
         });
       }
       if ((url.pathname === '/' || url.pathname === '/monitor' || url.pathname === '/line-oa-monitor.html') && request.method === 'GET') {
-        return serveMonitorPage();
+        return serveGithubHtml('line-oa-monitor.html');
+      }
+      if ((url.pathname === '/broadcast' || url.pathname === '/line-broadcast.html') && request.method === 'GET') {
+        return serveGithubHtml('line-broadcast.html');
       }
       if (url.pathname === '/api/line-oa/threads' && request.method === 'GET') {
         const auth = authorizeAdminFromQuery(url);
