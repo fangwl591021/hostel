@@ -158,8 +158,8 @@ function inferAudienceSignalsFromText(text = '') {
     '嘉義', '屏東', '台東', '臺東', '花蓮', '宜蘭', '澎湖', '金門',
   ];
   const matchedArea = areas.find(area => value.includes(area));
-  const femaleHints = ['小姐', '女士', '太太', '媽媽', '媽咪', '姐妹', '姊妹', '女性', '女生'];
-  const maleHints = ['先生', '爸爸', '爸比', '男性', '男生'];
+  const femaleHints = ['小姐', '女士', '太太', '媽媽', '媽咪', '姐妹', '姊妹', '女性', '女生', '美惠', '淑', '婷', '怡', '雅', '芳', '玲', '芬', '娟', '慧', '萱', '涵', '婷', '君', '妤', '芸', '瑜', '蓉'];
+  const maleHints = ['先生', '爸爸', '爸比', '男性', '男生', '志', '俊', '偉', '銘', '豪', '傑', '峰', '宏', '明', '強', '宇', '翔', '廷', '凱'];
   const gender = femaleHints.some(k => value.includes(k))
     ? '女性線索'
     : maleHints.some(k => value.includes(k))
@@ -168,11 +168,23 @@ function inferAudienceSignalsFromText(text = '') {
   return {
     area: matchedArea || '未判定',
     gender,
-    confidence: matchedArea || gender !== '未判定' ? 'low' : 'none',
+    confidence: matchedArea || gender !== '未判定' ? 'inferred' : 'none',
   };
 }
 
 function inferAudienceSignals(row = {}, messages = []) {
+  if (row.inferred_area || row.inferred_gender || row.location_address) {
+    return {
+      area: row.location_address || row.inferred_area || '未判定',
+      gender: row.inferred_gender || '未判定',
+      confidence: row.inferred_confidence || (row.location_address ? 'location' : 'inferred'),
+      location: row.location_address ? {
+        address: row.location_address,
+        latitude: row.location_latitude ?? null,
+        longitude: row.location_longitude ?? null,
+      } : null,
+    };
+  }
   const text = [
     row.display_name || '',
     row.summary || '',
@@ -180,6 +192,22 @@ function inferAudienceSignals(row = {}, messages = []) {
     ...messages.map(msg => msg.message_text || msg.text || ''),
   ].join('\n');
   return inferAudienceSignalsFromText(text);
+}
+
+function getLineMessageText(event = {}, messageType = '') {
+  const message = event.message || {};
+  if (messageType === 'text') return String(message.text || '').trim();
+  if (messageType === 'location') {
+    return [
+      '[location]',
+      message.title || '',
+      message.address || '',
+      message.latitude !== undefined && message.longitude !== undefined
+        ? `${message.latitude},${message.longitude}`
+        : '',
+    ].filter(Boolean).join(' ');
+  }
+  return `[${messageType}]`;
 }
 
 function eventCreatedAt(event = {}) {
@@ -197,20 +225,25 @@ async function storeLineEvents(env, payload = {}) {
     const source = event.source || {};
     const threadId = getLineThreadId(source);
     const messageType = String(event.message?.type || event.type || 'event');
-    const messageText = messageType === 'text'
-      ? String(event.message?.text || '').trim()
-      : `[${messageType}]`;
+    const messageText = getLineMessageText(event, messageType);
     const createdAt = eventCreatedAt(event);
     const { risk, tags } = summarizeRisk(messageText);
     const profile = await fetchLineSourceProfile(env, source);
     const displayName = profile?.displayName || getLineDisplayName(source);
     const pictureUrl = profile?.pictureUrl || '';
+    const inferred = inferAudienceSignalsFromText(`${displayName}\n${messageText}`);
+    const locationAddress = messageType === 'location' ? String(event.message?.address || event.message?.title || '').trim() : '';
+    const locationLatitude = messageType === 'location' && event.message?.latitude !== undefined ? Number(event.message.latitude) : null;
+    const locationLongitude = messageType === 'location' && event.message?.longitude !== undefined ? Number(event.message.longitude) : null;
 
     await env.DB.prepare(`
       INSERT INTO line_threads (
         id, source_type, source_user_id, source_group_id, display_name, picture_url,
-        status, risk_level, summary, unread_count, tags, last_message_at, created_at, updated_at
-      ) VALUES (?, 'line_oa', ?, ?, ?, ?, 'open', ?, ?, 1, ?, ?, ?, ?)
+        status, risk_level, summary, unread_count, tags,
+        inferred_area, inferred_gender, inferred_confidence,
+        location_address, location_latitude, location_longitude,
+        last_message_at, created_at, updated_at
+      ) VALUES (?, 'line_oa', ?, ?, ?, ?, 'open', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         source_user_id = excluded.source_user_id,
         source_group_id = excluded.source_group_id,
@@ -229,6 +262,24 @@ async function storeLineEvents(env, payload = {}) {
           WHEN line_threads.tags = '' THEN excluded.tags
           ELSE line_threads.tags || ',' || excluded.tags
         END,
+        inferred_area = CASE
+          WHEN excluded.inferred_area <> '' AND excluded.inferred_area <> '未判定' THEN excluded.inferred_area
+          ELSE line_threads.inferred_area
+        END,
+        inferred_gender = CASE
+          WHEN excluded.inferred_gender <> '' AND excluded.inferred_gender <> '未判定' THEN excluded.inferred_gender
+          ELSE line_threads.inferred_gender
+        END,
+        inferred_confidence = CASE
+          WHEN excluded.inferred_confidence <> '' AND excluded.inferred_confidence <> 'none' THEN excluded.inferred_confidence
+          ELSE line_threads.inferred_confidence
+        END,
+        location_address = CASE
+          WHEN excluded.location_address <> '' THEN excluded.location_address
+          ELSE line_threads.location_address
+        END,
+        location_latitude = COALESCE(excluded.location_latitude, line_threads.location_latitude),
+        location_longitude = COALESCE(excluded.location_longitude, line_threads.location_longitude),
         last_message_at = excluded.last_message_at,
         updated_at = excluded.updated_at
     `).bind(
@@ -240,6 +291,12 @@ async function storeLineEvents(env, payload = {}) {
       risk,
       messageText,
       tags.join(','),
+      inferred.area === '未判定' ? '' : inferred.area,
+      inferred.gender === '未判定' ? '' : inferred.gender,
+      inferred.confidence === 'none' ? '' : inferred.confidence,
+      locationAddress,
+      locationLatitude,
+      locationLongitude,
       createdAt,
       createdAt,
       createdAt
@@ -467,6 +524,48 @@ async function getAudience(env) {
   };
 }
 
+async function backfillAudienceSignals(env, limit = 300) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const size = Math.max(1, Math.min(Number(limit) || 300, 1000));
+  const { results } = await env.DB.prepare(`
+    SELECT id, display_name, summary, tags
+    FROM line_threads
+    WHERE inferred_area = ''
+       OR inferred_gender = ''
+    ORDER BY COALESCE(last_message_at, created_at) DESC
+    LIMIT ?
+  `).bind(size).all();
+
+  let scanned = 0;
+  let updated = 0;
+  for (const row of results || []) {
+    scanned += 1;
+    const messages = await env.DB.prepare(`
+      SELECT message_text
+      FROM line_messages
+      WHERE thread_id = ?
+      ORDER BY created_at DESC
+      LIMIT 80
+    `).bind(row.id).all();
+    const inferred = inferAudienceSignals(row, messages.results || []);
+    const area = inferred.area === '未判定' ? '' : inferred.area;
+    const gender = inferred.gender === '未判定' ? '' : inferred.gender;
+    const confidence = inferred.confidence === 'none' ? '' : inferred.confidence;
+    if (!area && !gender) continue;
+    await env.DB.prepare(`
+      UPDATE line_threads
+      SET inferred_area = CASE WHEN inferred_area = '' THEN ? ELSE inferred_area END,
+          inferred_gender = CASE WHEN inferred_gender = '' THEN ? ELSE inferred_gender END,
+          inferred_confidence = CASE WHEN inferred_confidence = '' THEN ? ELSE inferred_confidence END,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(area, gender, confidence, row.id).run();
+    updated += 1;
+  }
+
+  return { success: true, data: { scanned, updated } };
+}
+
 async function checkEndpoint(url, options = {}) {
   if (!url) return { ok: false, status: 'missing', detail: 'not configured' };
   try {
@@ -577,6 +676,13 @@ export default {
         const auth = authorizeAdminFromQuery(url);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await getAudience(env));
+      }
+      if (url.pathname === '/api/line-oa/backfill-signals' && ['GET', 'POST'].includes(request.method)) {
+        const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+        const uid = String(body.uid || url.searchParams.get('uid') || '').trim();
+        if (!uid) return json({ success: false, error: 'MISSING_UID' }, 400);
+        if (!ADMIN_UIDS.has(uid)) return json({ success: false, error: 'FORBIDDEN' }, 403);
+        return json(await backfillAudienceSignals(env, body.limit || url.searchParams.get('limit') || 300));
       }
       return json({ success: false, error: 'NOT_FOUND' }, 404);
     } catch (err) {

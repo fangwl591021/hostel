@@ -154,9 +154,10 @@
     function signalPills(signals = {}) {
       const area = signals.area || '未判定';
       const gender = signals.gender || '未判定';
-      const tone = signals.confidence === 'none' ? 'bg-slate-100 text-slate-500' : 'bg-sky-50 text-sky-700';
+      const location = signals.location?.address ? ' · 定位' : '';
+      const tone = signals.confidence === 'none' ? 'bg-slate-100 text-slate-500' : signals.confidence === 'location' ? 'bg-emerald-50 text-emerald-700' : 'bg-sky-50 text-sky-700';
       return `
-        <span class="rounded-full ${tone} px-3 py-1 text-xs font-semibold">地區 ${area}</span>
+        <span class="rounded-full ${tone} px-3 py-1 text-xs font-semibold">地區 ${area}${location}</span>
         <span class="rounded-full ${tone} px-3 py-1 text-xs font-semibold">性別 ${gender}</span>
       `;
     }
