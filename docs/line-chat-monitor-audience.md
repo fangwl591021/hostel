@@ -21,7 +21,7 @@ Worker 負責：
 非機密：
 
 ```text
-GAS_URL=https://aiwe.cc/index.php/line_login/4572/
+MOTHER_WEBHOOK_URL=https://aiwe.cc/index.php/line_login/4572/
 ```
 
 機密：

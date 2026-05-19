@@ -41,12 +41,12 @@ async function verifyLineSignature(rawBody, signature, secret) {
 }
 
 function getGasWebhookUrl(env) {
-  return String(env.GAS_URL || env.GAS_WEBAPP_URL || '').trim();
+  return String(env.MOTHER_WEBHOOK_URL || env.GAS_URL || env.GAS_WEBAPP_URL || '').trim();
 }
 
 async function postToMotherWebhook(env, payload) {
   const url = getGasWebhookUrl(env);
-  if (!url) return { skipped: true, reason: 'GAS_URL missing' };
+  if (!url) return { skipped: true, reason: 'MOTHER_WEBHOOK_URL missing' };
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -84,7 +84,7 @@ async function forwardWebhookToObserver(env, rawBody, signature) {
     headers: {
       'Content-Type': 'application/json',
       ...(signature ? { 'x-line-signature': signature } : {}),
-      'x-hostel-forwarded-by': 'hostel-worker',
+      'x-hostel-forwarded-by': 'hotel-worker',
     },
     body: rawBody,
   });
@@ -468,7 +468,7 @@ async function hubStatus(env) {
       : { ok: false, status: 'disabled', detail: 'FORWARD_WEBHOOK_URL not configured' },
     line: await checkLineBot(env),
     config: {
-      hasGasUrl: !!gasUrl,
+      hasMotherWebhookUrl: !!gasUrl,
       hasLineSecret: !!env.LINE_CHANNEL_SECRET,
       hasLineToken: !!env.LINE_CHANNEL_ACCESS_TOKEN,
       hasForwardWebhook: !!env.FORWARD_WEBHOOK_URL,
@@ -486,7 +486,7 @@ function renderHubHtml(status, origin) {
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Hostel Webhook Diagnostics</title>
 <style>body{font-family:Arial,"Noto Sans TC",sans-serif;background:#f8fafc;color:#0f172a;margin:0}.wrap{max-width:960px;margin:auto;padding:32px 20px}.card{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:22px}.row{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #e2e8f0;padding:16px 0}.row span{display:block;color:#64748b;margin-top:4px}.ok{color:#16a34a}.bad{color:#dc2626}code{background:#f1f5f9;padding:2px 6px;border-radius:6px}</style>
-</head><body><main class="wrap"><h1>Hostel 雙 Webhook 診斷</h1><p>LINE Webhook URL：<code>${origin}/line-webhook</code></p><div class="card">${row('母站 Webhook', status.gas)}${row('第二系統', status.forward)}${row('LINE Bot Token', status.line)}<p>GAS_URL: ${status.config.hasGasUrl ? 'configured' : 'missing'} · LINE_CHANNEL_SECRET: ${status.config.hasLineSecret ? 'configured' : 'missing'} · LINE_CHANNEL_ACCESS_TOKEN: ${status.config.hasLineToken ? 'configured' : 'missing'}</p></div></main></body></html>`;
+</head><body><main class="wrap"><h1>Hostel 雙 Webhook 診斷</h1><p>LINE Webhook URL：<code>${origin}/line-webhook</code></p><div class="card">${row('母站 Webhook', status.gas)}${row('第二系統', status.forward)}${row('LINE Bot Token', status.line)}<p>MOTHER_WEBHOOK_URL: ${status.config.hasMotherWebhookUrl ? 'configured' : 'missing'} · LINE_CHANNEL_SECRET: ${status.config.hasLineSecret ? 'configured' : 'missing'} · LINE_CHANNEL_ACCESS_TOKEN: ${status.config.hasLineToken ? 'configured' : 'missing'}</p></div></main></body></html>`;
 }
 
 export default {
