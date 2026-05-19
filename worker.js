@@ -147,6 +147,41 @@ function summarizeRisk(text = '') {
   return { risk, tags: uniqueHits };
 }
 
+function inferAudienceSignalsFromText(text = '') {
+  const value = String(text || '');
+  const areas = [
+    '中西區', '東區', '南區', '北區', '安平', '安南', '永康', '歸仁', '仁德',
+    '新化', '善化', '新市', '麻豆', '佳里', '學甲', '西港', '七股', '將軍',
+    '北門', '新營', '鹽水', '白河', '柳營', '後壁', '東山', '六甲', '下營',
+    '官田', '大內', '玉井', '楠西', '南化', '左鎮', '關廟', '龍崎',
+    '台南', '臺南', '高雄', '台中', '臺中', '台北', '臺北', '新北', '桃園',
+    '嘉義', '屏東', '台東', '臺東', '花蓮', '宜蘭', '澎湖', '金門',
+  ];
+  const matchedArea = areas.find(area => value.includes(area));
+  const femaleHints = ['小姐', '女士', '太太', '媽媽', '媽咪', '姐妹', '姊妹', '女性', '女生'];
+  const maleHints = ['先生', '爸爸', '爸比', '男性', '男生'];
+  const gender = femaleHints.some(k => value.includes(k))
+    ? '女性線索'
+    : maleHints.some(k => value.includes(k))
+      ? '男性線索'
+      : '未判定';
+  return {
+    area: matchedArea || '未判定',
+    gender,
+    confidence: matchedArea || gender !== '未判定' ? 'low' : 'none',
+  };
+}
+
+function inferAudienceSignals(row = {}, messages = []) {
+  const text = [
+    row.display_name || '',
+    row.summary || '',
+    row.tags || '',
+    ...messages.map(msg => msg.message_text || msg.text || ''),
+  ].join('\n');
+  return inferAudienceSignalsFromText(text);
+}
+
 function eventCreatedAt(event = {}) {
   if (event.timestamp) {
     const value = new Date(Number(event.timestamp));
@@ -292,6 +327,7 @@ async function getThreads(env) {
       summary: row.summary || '',
       unread: Number(row.unread_count || 0),
       tags: String(row.tags || '').split(',').map(v => v.trim()).filter(Boolean),
+      signals: inferAudienceSignals(row),
       note: row.note || '',
       lastMessageAt: row.last_message_at || '',
     })),
@@ -325,6 +361,7 @@ async function getThread(env, threadId) {
       summary: row.summary || '',
       unread: Number(row.unread_count || 0),
       tags: String(row.tags || '').split(',').map(v => v.trim()).filter(Boolean),
+      signals: inferAudienceSignals(row, results || []),
       note: row.note || '',
       lastMessageAt: row.last_message_at || '',
       messages: (results || []).map(msg => ({
