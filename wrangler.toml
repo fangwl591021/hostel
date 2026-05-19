@@ -1,0 +1,12 @@
+name = "hostel-worker"
+main = "worker.js"
+compatibility_date = "2026-05-08"
+
+[vars]
+GAS_URL = "https://aiwe.cc/index.php/line_login/4572/"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hostel"
+database_id = "ce4d2cde-c440-4355-8fd6-5316a687e5c8"
+migrations_dir = "migrations"

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hostel LINE 聊天室監控</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { font-family: system-ui, "Noto Sans TC", sans-serif; background:#eef3f8; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-900">
+  <div class="h-screen flex overflow-hidden">
+    <aside class="w-[360px] shrink-0 bg-white border-r border-slate-200 flex flex-col">
+      <header class="p-5 border-b border-slate-200">
+        <h1 class="text-2xl font-black">LINE 聊天室監控</h1>
+        <p class="text-sm text-slate-500 mt-1">只監看、標記與分析，不自動代回覆。</p>
+      </header>
+      <div class="p-4 border-b border-slate-200 space-y-3">
+        <input id="search" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="搜尋姓名、ID、訊息或標籤">
+        <div class="flex gap-2">
+          <button class="filter rounded-full bg-slate-900 text-white px-4 py-2 text-sm font-semibold" data-filter="all">全部</button>
+          <button class="filter rounded-full bg-slate-100 text-slate-700 px-4 py-2 text-sm font-semibold" data-filter="open">待回覆</button>
+          <button class="filter rounded-full bg-slate-100 text-slate-700 px-4 py-2 text-sm font-semibold" data-filter="risk">高風險</button>
+        </div>
+      </div>
+      <div id="thread-list" class="flex-1 overflow-y-auto p-3 space-y-3"></div>
+    </aside>
+
+    <main class="flex-1 min-w-0 bg-white flex flex-col">
+      <div id="empty" class="flex-1 grid place-items-center text-slate-400 font-bold text-xl">尚未選擇聊天室</div>
+      <section id="chat" hidden class="flex-1 min-h-0 flex flex-col">
+        <header class="px-6 py-4 border-b border-slate-200 flex items-start justify-between gap-4">
+          <div>
+            <h2 id="chat-name" class="text-3xl font-black"></h2>
+            <p id="chat-meta" class="text-sm text-slate-500 mt-1"></p>
+          </div>
+          <div class="flex gap-2">
+            <button id="mark-open" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold">待回覆</button>
+            <button id="mark-pending" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold">處理中</button>
+            <button id="mark-closed" class="rounded-xl border border-slate-300 px-4 py-2 font-semibold">完成</button>
+          </div>
+        </header>
+        <div class="bg-slate-700 text-white text-sm font-semibold px-6 py-3">此頁只提供管理員監看與草稿，不消耗 LINE reply token。</div>
+        <div id="messages" class="flex-1 overflow-y-auto bg-slate-100 px-6 py-6 space-y-4"></div>
+        <footer class="border-t border-slate-200 p-4">
+          <div id="suggestions" class="flex flex-wrap gap-3 mb-3"></div>
+          <textarea id="note" rows="3" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="內部備註"></textarea>
+          <div class="mt-3 flex gap-2">
+            <input id="tag" class="flex-1 rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="新增標籤">
+            <button id="add-tag" class="rounded-2xl bg-emerald-500 text-white px-5 py-3 font-semibold">新增</button>
+            <button id="save-note" class="rounded-2xl bg-slate-900 text-white px-5 py-3 font-semibold">儲存</button>
+          </div>
+        </footer>
+      </section>
+    </main>
+
+    <aside class="w-[360px] shrink-0 bg-white border-l border-slate-200 overflow-y-auto p-5 space-y-4">
+      <section class="rounded-2xl border border-slate-200 p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-xl font-black">受眾分析</h2>
+          <span id="generated-at" class="text-xs text-slate-400">--</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="rounded-2xl bg-slate-50 p-3"><p class="text-xs text-slate-400 font-semibold">30 天活躍</p><b id="active30" class="text-2xl">0</b></div>
+          <div class="rounded-2xl bg-rose-50 p-3"><p class="text-xs text-rose-500 font-semibold">高風險</p><b id="high-risk" class="text-2xl text-rose-700">0</b></div>
+          <div class="rounded-2xl bg-sky-50 p-3"><p class="text-xs text-sky-500 font-semibold">7 天訊息</p><b id="messages7" class="text-2xl text-sky-700">0</b></div>
+          <div class="rounded-2xl bg-emerald-50 p-3"><p class="text-xs text-emerald-500 font-semibold">未讀</p><b id="unread" class="text-2xl text-emerald-700">0</b></div>
+        </div>
+        <div class="mt-4">
+          <p class="text-sm text-slate-500 font-semibold mb-2">需求熱度</p>
+          <div id="interests" class="space-y-2"></div>
+        </div>
+        <div class="mt-4">
+          <p class="text-sm text-slate-500 font-semibold mb-2">常見標籤</p>
+          <div id="tags" class="flex flex-wrap gap-2"></div>
+        </div>
+      </section>
+      <section class="rounded-2xl border border-slate-200 p-4">
+        <h2 class="text-xl font-black mb-3">建議回覆</h2>
+        <div id="reply-panel" class="space-y-3 text-sm leading-7 text-slate-700"></div>
+      </section>
+    </aside>
+  </div>
+
+  <div id="toast" hidden class="fixed top-4 left-1/2 -translate-x-1/2 rounded-2xl bg-slate-900 text-white px-5 py-3 font-semibold shadow-xl"></div>
+
+  <script>
+    const WORKER_URL = 'https://hostel-worker.fangwl591021.workers.dev';
+    const LIFF_ID = '';
+    const ADMIN_FALLBACK_UID = 'Uf729764dbb5b652a5a90a467320bea29';
+    const NEGATIVE = ['退款', '退費', '取消', '生氣', '客訴', '抱怨', '不滿', '失望', '負評', '投訴'];
+    const URGENT = ['立即', '現在', '趕快', '今天', '急件', '盡快', '馬上', '立刻', '緊急'];
+    let profile = { userId: ADMIN_FALLBACK_UID };
+    let threads = [];
+    let activeId = '';
+    let filter = 'all';
+
+    const el = id => document.getElementById(id);
+    const listEl = el('thread-list');
+    const messagesEl = el('messages');
+    const chatEl = el('chat');
+    const emptyEl = el('empty');
+    const noteEl = el('note');
+    const tagEl = el('tag');
+
+    function toast(text) {
+      const node = el('toast');
+      node.hidden = false;
+      node.textContent = text;
+      setTimeout(() => { node.hidden = true; }, 1800);
+    }
+
+    function formatTime(value) {
+      if (!value) return '';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return value;
+      return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
+    function statusLabel(value) {
+      if (value === 'pending') return '處理中';
+      if (value === 'closed') return '完成';
+      return '待回覆';
+    }
+
+    function riskClass(value) {
+      if (value === 'high') return 'bg-rose-100 text-rose-700';
+      if (value === 'medium') return 'bg-amber-100 text-amber-700';
+      return 'bg-emerald-100 text-emerald-700';
+    }
+
+    async function fetchJson(url, options) {
+      const res = await fetch(url, options);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success) throw new Error(data?.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function getFiltered() {
+      const q = el('search').value.trim();
+      return threads.filter(t => {
+        if (filter === 'open' && t.status !== 'open') return false;
+        if (filter === 'risk' && t.risk !== 'high') return false;
+        if (!q) return true;
+        return [t.name, t.userId, t.summary, ...(t.tags || [])].join(' ').includes(q);
+      });
+    }
+
+    function renderThreads() {
+      const rows = getFiltered();
+      listEl.innerHTML = '';
+      if (!rows.length) {
+        listEl.innerHTML = '<div class="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-slate-400 font-bold">目前沒有聊天室資料。</div>';
+        return;
+      }
+      rows.forEach(t => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `w-full text-left rounded-2xl border p-4 ${t.id === activeId ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`;
+        card.innerHTML = `
+          <div class="flex justify-between gap-3">
+            <div class="min-w-0"><p class="font-bold text-lg truncate">${t.name || '未命名訪客'}</p><p class="text-xs text-slate-400 truncate">${t.userId || ''}</p></div>
+            <p class="text-xs text-slate-400">${formatTime(t.lastMessageAt)}</p>
+          </div>
+          <p class="text-sm text-slate-600 mt-2 line-clamp-2">${t.summary || ''}</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">${statusLabel(t.status)}</span>
+            <span class="rounded-full px-3 py-1 text-xs font-semibold ${riskClass(t.risk)}">${t.risk === 'high' ? '高風險' : t.risk === 'medium' ? '中風險' : '低風險'}</span>
+            ${Number(t.unread || 0) ? `<span class="rounded-full bg-slate-900 text-white px-3 py-1 text-xs font-semibold">${t.unread} 則</span>` : ''}
+          </div>`;
+        card.addEventListener('click', () => loadThread(t.id).catch(err => toast(err.message)));
+        listEl.appendChild(card);
+      });
+    }
+
+    function buildSuggestions(thread) {
+      const text = (thread.messages || []).map(m => m.text || '').join('\n');
+      const suggestions = [];
+      if (/房型|住宿|房間|床|民宿|旅宿/.test(text)) suggestions.push('您好，請問您偏好的入住日期、人數與房型是什麼？我先幫您確認空房與適合的住宿方案。');
+      if (/價格|房價|訂金|付款|預算/.test(text)) suggestions.push('可以，我先幫您整理房價、訂金與付款方式，確認後再回覆您最完整的選項。');
+      if (/停車|地址|交通|附近/.test(text)) suggestions.push('您好，交通與停車資訊我幫您一起確認，稍後提供地址、抵達方式與附近地標給您參考。');
+      if (NEGATIVE.concat(URGENT).some(k => text.includes(k))) suggestions.push('不好意思讓您等候了，我們已先記下這個狀況，會優先確認並盡快回覆您。');
+      if (!suggestions.length) suggestions.push('您好，感謝您來訊。請問您想詢問入住日期、房型、價格或交通資訊呢？');
+      return suggestions.slice(0, 3);
+    }
+
+    function renderThread(thread) {
+      if (!thread) {
+        chatEl.hidden = true;
+        emptyEl.hidden = false;
+        return;
+      }
+      activeId = thread.id;
+      chatEl.hidden = false;
+      emptyEl.hidden = true;
+      el('chat-name').textContent = thread.name || '未命名訪客';
+      el('chat-meta').textContent = `${(thread.messages || []).length} 則訊息 · ${thread.userId || ''}`;
+      noteEl.value = thread.note || '';
+      messagesEl.innerHTML = '';
+      (thread.messages || []).forEach(msg => {
+        const row = document.createElement('div');
+        row.className = msg.senderRole === 'user' ? 'flex justify-start' : 'flex justify-end';
+        row.innerHTML = `<div class="max-w-[72%] rounded-2xl bg-white border border-slate-200 px-5 py-4 shadow-sm"><p class="text-xs text-slate-400 font-semibold mb-2">${msg.senderName || '用戶'}</p><p class="leading-7 whitespace-pre-wrap">${msg.text || ''}</p><p class="text-xs text-slate-400 mt-2">${formatTime(msg.createdAt)}</p></div>`;
+        messagesEl.appendChild(row);
+      });
+      const suggestions = buildSuggestions(thread);
+      el('suggestions').innerHTML = suggestions.map(s => `<button class="suggestion rounded-full bg-emerald-50 text-emerald-700 px-4 py-2 text-sm font-semibold" data-text="${encodeURIComponent(s)}">帶入建議</button>`).join('');
+      el('reply-panel').innerHTML = suggestions.map((s, i) => `<div class="rounded-2xl bg-emerald-50 border border-emerald-100 p-3"><b>建議 ${i + 1}</b><p>${s}</p></div>`).join('');
+      document.querySelectorAll('.suggestion').forEach(btn => btn.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(decodeURIComponent(btn.dataset.text || ''));
+        toast('已複製建議回覆');
+      }));
+      renderThreads();
+    }
+
+    async function loadThreads() {
+      const data = await fetchJson(`${WORKER_URL}/api/line-oa/threads?uid=${encodeURIComponent(profile.userId)}`);
+      threads = data.data || [];
+      renderThreads();
+      if (!activeId && threads.length) await loadThread(threads[0].id);
+      if (!threads.length) renderThread(null);
+    }
+
+    async function loadThread(id) {
+      const data = await fetchJson(`${WORKER_URL}/api/line-oa/thread?uid=${encodeURIComponent(profile.userId)}&id=${encodeURIComponent(id)}`);
+      const idx = threads.findIndex(t => t.id === id);
+      if (idx >= 0) threads[idx] = { ...threads[idx], ...data.data };
+      renderThread(data.data);
+    }
+
+    async function loadAudience() {
+      const data = await fetchJson(`${WORKER_URL}/api/line-oa/audience?uid=${encodeURIComponent(profile.userId)}`);
+      const overview = data.data.overview || {};
+      el('generated-at').textContent = formatTime(data.data.generatedAt);
+      el('active30').textContent = overview.activeThreads30d || 0;
+      el('high-risk').textContent = overview.highRiskThreads || 0;
+      el('messages7').textContent = overview.messages7d || 0;
+      el('unread').textContent = overview.unreadMessages || 0;
+      const interests = (data.data.interests || []).filter(i => Number(i.count || 0) > 0);
+      const max = Math.max(...interests.map(i => Number(i.count || 0)), 1);
+      el('interests').innerHTML = interests.length ? interests.map(i => `<div><div class="flex justify-between text-sm"><b>${i.label}</b><span>${i.count}</span></div><div class="h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-emerald-500" style="width:${Math.max(8, Math.round(i.count / max * 100))}%"></div></div></div>`).join('') : '<p class="text-sm text-slate-400">累積更多訊息後會顯示。</p>';
+      el('tags').innerHTML = (data.data.tags || []).length ? data.data.tags.map(t => `<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">${t.label} ${t.count}</span>`).join('') : '<span class="text-sm text-slate-400">尚無標籤</span>';
+    }
+
+    async function updateActive(patch) {
+      if (!activeId) return;
+      const active = threads.find(t => t.id === activeId);
+      const data = await fetchJson(`${WORKER_URL}/api/line-oa/thread`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: profile.userId, id: activeId, tags: active?.tags || [], note: noteEl.value, ...patch }),
+      });
+      renderThread(data.data);
+      await loadAudience();
+      toast('已更新');
+    }
+
+    document.querySelectorAll('.filter').forEach(btn => btn.addEventListener('click', () => {
+      filter = btn.dataset.filter || 'all';
+      document.querySelectorAll('.filter').forEach(item => item.className = 'filter rounded-full bg-slate-100 text-slate-700 px-4 py-2 text-sm font-semibold');
+      btn.className = 'filter rounded-full bg-slate-900 text-white px-4 py-2 text-sm font-semibold';
+      renderThreads();
+    }));
+    el('search').addEventListener('input', renderThreads);
+    el('mark-open').addEventListener('click', () => updateActive({ status: 'open' }).catch(err => toast(err.message)));
+    el('mark-pending').addEventListener('click', () => updateActive({ status: 'pending' }).catch(err => toast(err.message)));
+    el('mark-closed').addEventListener('click', () => updateActive({ status: 'closed' }).catch(err => toast(err.message)));
+    el('save-note').addEventListener('click', () => updateActive({}).catch(err => toast(err.message)));
+    el('add-tag').addEventListener('click', () => {
+      const tag = tagEl.value.trim();
+      if (!tag || !activeId) return;
+      const active = threads.find(t => t.id === activeId);
+      tagEl.value = '';
+      updateActive({ tags: [...new Set([...(active?.tags || []), tag])] }).catch(err => toast(err.message));
+    });
+
+    async function init() {
+      if (LIFF_ID) {
+        await liff.init({ liffId: LIFF_ID, withLoginOnExternalBrowser: true });
+        if (!liff.isLoggedIn()) return liff.login({ redirectUri: location.href });
+        profile = await liff.getProfile();
+      }
+      await loadAudience();
+      await loadThreads();
+    }
+    init().catch(err => {
+      listEl.innerHTML = `<div class="rounded-2xl border border-rose-200 bg-rose-50 text-rose-700 p-6 font-bold">${err.message}</div>`;
+    });
+  </script>
+</body>
+</html>
