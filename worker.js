@@ -619,6 +619,243 @@ async function backfillPostbackText(env, limit = 500) {
   return { success: true, data: { scanned, updated, changedThreads: changedThreads.size } };
 }
 
+function addSeconds(date, seconds) {
+  return new Date(date.getTime() + seconds * 1000).toISOString();
+}
+
+function normalizeLineMessages(input) {
+  if (Array.isArray(input)) return input;
+  const text = String(input || '').trim();
+  if (!text) return null;
+  return [{ type: 'text', text }];
+}
+
+async function createBroadcastJob(env, body = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const uid = String(body.uid || '').trim();
+  if (!uid) return { success: false, error: 'MISSING_UID' };
+  if (!ADMIN_UIDS.has(uid)) return { success: false, error: 'FORBIDDEN' };
+
+  const messages = normalizeLineMessages(body.messages || body.message || body.text);
+  if (!messages || !messages.length) return { success: false, error: 'MISSING_MESSAGE' };
+  const batchSize = Math.max(1, Math.min(Number(body.batchSize || body.batch_size || 200) || 200, 500));
+  const intervalSeconds = Math.max(30, Math.min(Number(body.intervalSeconds || body.interval_seconds || 60) || 60, 3600));
+  const title = String(body.title || `Broadcast ${new Date().toISOString()}`).trim();
+  const jobId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  const customUserIds = Array.isArray(body.userIds)
+    ? body.userIds.map(v => String(v || '').trim()).filter(Boolean)
+    : [];
+  const recipientRows = customUserIds.length
+    ? customUserIds.map(userId => ({ source_user_id: userId, display_name: '' }))
+    : (await env.DB.prepare(`
+        SELECT source_user_id, display_name
+        FROM line_threads
+        WHERE source_user_id <> ''
+        GROUP BY source_user_id
+        ORDER BY MAX(COALESCE(last_message_at, created_at)) DESC
+      `).all()).results || [];
+
+  const uniqueRecipients = [];
+  const seen = new Set();
+  for (const row of recipientRows) {
+    const userId = String(row.source_user_id || '').trim();
+    if (!userId || seen.has(userId)) continue;
+    seen.add(userId);
+    uniqueRecipients.push({ userId, name: String(row.display_name || '') });
+  }
+  if (!uniqueRecipients.length) return { success: false, error: 'NO_RECIPIENTS' };
+
+  await env.DB.prepare(`
+    INSERT INTO line_broadcast_jobs (
+      id, title, message_json, status, total_recipients, batch_size,
+      interval_seconds, next_run_at, created_by, created_at, updated_at
+    ) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    jobId,
+    title,
+    JSON.stringify(messages),
+    uniqueRecipients.length,
+    batchSize,
+    intervalSeconds,
+    now,
+    uid,
+    now,
+    now
+  ).run();
+
+  for (const recipient of uniqueRecipients) {
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO line_broadcast_recipients (
+        id, job_id, line_user_id, display_name, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'queued', ?, ?)
+    `).bind(crypto.randomUUID(), jobId, recipient.userId, recipient.name, now, now).run();
+  }
+
+  return { success: true, data: { id: jobId, title, totalRecipients: uniqueRecipients.length, batchSize, intervalSeconds } };
+}
+
+async function listBroadcastJobs(env, uid) {
+  if (!ADMIN_UIDS.has(String(uid || '').trim())) return { success: false, error: 'FORBIDDEN' };
+  const { results } = await env.DB.prepare(`
+    SELECT id, title, status, total_recipients, sent_count, failed_count,
+           batch_size, interval_seconds, next_run_at, created_at, updated_at,
+           completed_at, last_error
+    FROM line_broadcast_jobs
+    ORDER BY created_at DESC
+    LIMIT 50
+  `).all();
+  return {
+    success: true,
+    data: (results || []).map(row => ({
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      totalRecipients: Number(row.total_recipients || 0),
+      sentCount: Number(row.sent_count || 0),
+      failedCount: Number(row.failed_count || 0),
+      batchSize: Number(row.batch_size || 0),
+      intervalSeconds: Number(row.interval_seconds || 0),
+      nextRunAt: row.next_run_at || '',
+      createdAt: row.created_at || '',
+      updatedAt: row.updated_at || '',
+      completedAt: row.completed_at || '',
+      lastError: row.last_error || '',
+    })),
+  };
+}
+
+async function updateBroadcastJobStatus(env, body = {}) {
+  const uid = String(body.uid || '').trim();
+  if (!ADMIN_UIDS.has(uid)) return { success: false, error: 'FORBIDDEN' };
+  const id = String(body.id || '').trim();
+  const action = String(body.action || '').trim();
+  if (!id) return { success: false, error: 'MISSING_JOB_ID' };
+  const statusByAction = {
+    pause: 'paused',
+    resume: 'queued',
+    cancel: 'cancelled',
+  };
+  const nextStatus = statusByAction[action];
+  if (!nextStatus) return { success: false, error: 'INVALID_ACTION' };
+  await env.DB.prepare(`
+    UPDATE line_broadcast_jobs
+    SET status = ?,
+        next_run_at = CASE WHEN ? = 'queued' THEN ? ELSE next_run_at END,
+        updated_at = ?
+    WHERE id = ?
+  `).bind(nextStatus, nextStatus, new Date().toISOString(), new Date().toISOString(), id).run();
+  return { success: true, data: { id, status: nextStatus } };
+}
+
+async function sendLineMulticast(env, userIds, messages) {
+  if (!env.LINE_CHANNEL_ACCESS_TOKEN) throw new Error('LINE_CHANNEL_ACCESS_TOKEN missing');
+  const res = await fetch('https://api.line.me/v2/bot/message/multicast', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`,
+    },
+    body: JSON.stringify({ to: userIds, messages }),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`LINE multicast failed (${res.status}): ${text.slice(0, 300)}`);
+  return text;
+}
+
+async function processBroadcastJobs(env, maxJobs = 3) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const now = new Date();
+  const { results: jobs } = await env.DB.prepare(`
+    SELECT *
+    FROM line_broadcast_jobs
+    WHERE status IN ('queued', 'running')
+      AND (next_run_at = '' OR next_run_at <= ?)
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).bind(now.toISOString(), Math.max(1, Math.min(Number(maxJobs) || 3, 10))).all();
+
+  const summaries = [];
+  for (const job of jobs || []) {
+    const batchSize = Math.max(1, Math.min(Number(job.batch_size || 200), 500));
+    const { results: recipients } = await env.DB.prepare(`
+      SELECT id, line_user_id
+      FROM line_broadcast_recipients
+      WHERE job_id = ?
+        AND status IN ('queued', 'failed')
+        AND attempt_count < 3
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).bind(job.id, batchSize).all();
+
+    if (!recipients || !recipients.length) {
+      await env.DB.prepare(`
+        UPDATE line_broadcast_jobs
+        SET status = 'completed',
+            completed_at = ?,
+            updated_at = ?,
+            next_run_at = ''
+        WHERE id = ?
+      `).bind(now.toISOString(), now.toISOString(), job.id).run();
+      summaries.push({ id: job.id, completed: true, sent: 0 });
+      continue;
+    }
+
+    const ids = recipients.map(row => row.id);
+    const userIds = recipients.map(row => row.line_user_id);
+    const placeholders = ids.map(() => '?').join(',');
+    await env.DB.prepare(`
+      UPDATE line_broadcast_recipients
+      SET status = 'sending',
+          attempt_count = attempt_count + 1,
+          updated_at = ?
+      WHERE id IN (${placeholders})
+    `).bind(now.toISOString(), ...ids).run();
+
+    let sent = 0;
+    let failed = 0;
+    let error = '';
+    try {
+      const messages = JSON.parse(job.message_json || '[]');
+      await sendLineMulticast(env, userIds, messages);
+      sent = recipients.length;
+      await env.DB.prepare(`
+        UPDATE line_broadcast_recipients
+        SET status = 'sent',
+            sent_at = ?,
+            updated_at = ?,
+            last_error = ''
+        WHERE id IN (${placeholders})
+      `).bind(now.toISOString(), now.toISOString(), ...ids).run();
+    } catch (err) {
+      failed = recipients.length;
+      error = err.message || 'SEND_FAILED';
+      await env.DB.prepare(`
+        UPDATE line_broadcast_recipients
+        SET status = CASE WHEN attempt_count >= 3 THEN 'failed' ELSE 'queued' END,
+            updated_at = ?,
+            last_error = ?
+        WHERE id IN (${placeholders})
+      `).bind(now.toISOString(), error.slice(0, 500), ...ids).run();
+    }
+
+    const nextRunAt = addSeconds(now, Number(job.interval_seconds || 60) || 60);
+    await env.DB.prepare(`
+      UPDATE line_broadcast_jobs
+      SET status = 'queued',
+          sent_count = sent_count + ?,
+          failed_count = failed_count + ?,
+          next_run_at = ?,
+          updated_at = ?,
+          last_error = ?
+      WHERE id = ?
+    `).bind(sent, failed, nextRunAt, now.toISOString(), error.slice(0, 500), job.id).run();
+    summaries.push({ id: job.id, sent, failed, nextRunAt, error });
+  }
+  return { success: true, data: { processedJobs: summaries.length, jobs: summaries } };
+}
+
 async function checkEndpoint(url, options = {}) {
   if (!url) return { ok: false, status: 'missing', detail: 'not configured' };
   try {
@@ -744,9 +981,32 @@ export default {
         if (!ADMIN_UIDS.has(uid)) return json({ success: false, error: 'FORBIDDEN' }, 403);
         return json(await backfillPostbackText(env, body.limit || url.searchParams.get('limit') || 500));
       }
+      if (url.pathname === '/api/broadcast/jobs' && request.method === 'GET') {
+        const uid = url.searchParams.get('uid') || '';
+        return json(await listBroadcastJobs(env, uid));
+      }
+      if (url.pathname === '/api/broadcast/jobs' && request.method === 'POST') {
+        const body = await request.json();
+        const result = await createBroadcastJob(env, body);
+        return json(result, result.success ? 200 : 400);
+      }
+      if (url.pathname === '/api/broadcast/job' && request.method === 'POST') {
+        const body = await request.json();
+        const result = await updateBroadcastJobStatus(env, body);
+        return json(result, result.success ? 200 : 400);
+      }
+      if (url.pathname === '/api/broadcast/run' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const uid = String(body.uid || url.searchParams.get('uid') || '').trim();
+        if (!ADMIN_UIDS.has(uid)) return json({ success: false, error: 'FORBIDDEN' }, 403);
+        return json(await processBroadcastJobs(env, body.maxJobs || url.searchParams.get('maxJobs') || 3));
+      }
       return json({ success: false, error: 'NOT_FOUND' }, 404);
     } catch (err) {
       return json({ success: false, error: err.message }, 500);
     }
+  },
+  async scheduled(_event, env, _ctx) {
+    await processBroadcastJobs(env, 3);
   },
 };
