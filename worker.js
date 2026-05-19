@@ -523,8 +523,8 @@ function renderHubHtml(status, origin) {
 }
 
 async function serveMonitorPage() {
-  const res = await fetch('https://raw.githubusercontent.com/fangwl591021/hostel/main/line-oa-monitor.html', {
-    cf: { cacheTtl: 60, cacheEverything: true },
+  const res = await fetch(`https://raw.githubusercontent.com/fangwl591021/hostel/main/line-oa-monitor.html?v=${Date.now()}`, {
+    cf: { cacheTtl: 0, cacheEverything: false },
   });
   if (!res.ok) return json({ success: false, error: `MONITOR_PAGE_FETCH_FAILED_${res.status}` }, 502);
   const html = await res.text();
