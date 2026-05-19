@@ -485,6 +485,21 @@ function renderHubHtml(status, origin) {
 </head><body><main class="wrap"><h1>Hostel 雙 Webhook 診斷</h1><p>LINE Webhook URL：<code>${origin}/line-webhook</code></p><div class="card">${row('母站 Webhook', status.gas)}${row('第二系統', status.forward)}${row('LINE Bot Token', status.line)}<p>MOTHER_WEBHOOK_URL: ${status.config.hasMotherWebhookUrl ? 'configured' : 'missing'} · LINE_CHANNEL_SECRET: ${status.config.hasLineSecret ? 'configured' : 'missing'} · LINE_CHANNEL_ACCESS_TOKEN: ${status.config.hasLineToken ? 'configured' : 'missing'}</p></div></main></body></html>`;
 }
 
+async function serveMonitorPage() {
+  const res = await fetch('https://raw.githubusercontent.com/fangwl591021/hostel/main/line-oa-monitor.html', {
+    cf: { cacheTtl: 60, cacheEverything: true },
+  });
+  if (!res.ok) return json({ success: false, error: `MONITOR_PAGE_FETCH_FAILED_${res.status}` }, 502);
+  const html = await res.text();
+  return new Response(html, {
+    headers: {
+      'Content-Type': 'text/html; charset=UTF-8',
+      'Cache-Control': 'no-store',
+      ...CORS,
+    },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
@@ -496,6 +511,9 @@ export default {
         return new Response(renderHubHtml(await hubStatus(env), url.origin), {
           headers: { 'Content-Type': 'text/html; charset=UTF-8', ...CORS },
         });
+      }
+      if ((url.pathname === '/' || url.pathname === '/monitor' || url.pathname === '/line-oa-monitor.html') && request.method === 'GET') {
+        return serveMonitorPage();
       }
       if (url.pathname === '/api/line-oa/threads' && request.method === 'GET') {
         const auth = authorizeAdminFromQuery(url);
