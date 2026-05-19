@@ -225,6 +225,69 @@ function getLineMessageText(event = {}, messageType = '') {
   return `[${messageType}]`;
 }
 
+function formatPostbackText(event = {}, fallback = '') {
+  const data = String(event.postback?.data || '').trim();
+  const params = new URLSearchParams(data);
+  const values = [
+    params.get('keyword'),
+    params.get('title'),
+    params.get('label'),
+    params.get('hotel'),
+    params.get('hostel'),
+    params.get('area'),
+    params.get('region'),
+    params.get('district'),
+  ].map(v => String(v || '').trim()).filter(Boolean);
+  const uniqueValues = [...new Set(values)];
+  if (uniqueValues.length) return `點擊：${uniqueValues.join(' / ')}`;
+
+  const cleanedFallback = String(fallback || '')
+    .replace(/^\[postback\]\s*/i, '')
+    .replace(/\s*(name|keyword|area|region|district|hotel|hostel|title|label)=[^\s]+.*$/i, '')
+    .replace(/\s+\b(name|keyword|area|region|district|hotel|hostel|title|label)\b\s*$/i, '')
+    .trim();
+  return cleanedFallback ? `點擊：${cleanedFallback}` : '點擊選單';
+}
+
+function formatLineMessageForDisplay(row = {}) {
+  const type = String(row.message_type || '').trim();
+  const storedText = String(row.message_text || '').trim();
+  let event = null;
+  try { event = JSON.parse(row.raw_json || '{}'); } catch (_err) {}
+  const message = event?.message || {};
+
+  if (type === 'text') return String(message.text || storedText).trim();
+  if (type === 'postback') return formatPostbackText(event || {}, storedText);
+  if (type === 'location') {
+    const address = String(message.address || '').trim();
+    const title = String(message.title || '').trim();
+    const coords = message.latitude !== undefined && message.longitude !== undefined
+      ? `${message.latitude}, ${message.longitude}`
+      : '';
+    return ['位置', title, address, coords].filter(Boolean).join('：');
+  }
+  if (type === 'sticker') {
+    return `貼圖：${[message.packageId, message.stickerId].filter(Boolean).join('/') || 'LINE 貼圖'}`;
+  }
+  if (type === 'image') return '圖片訊息';
+  if (type === 'video') return '影片訊息';
+  if (type === 'audio') return '語音訊息';
+  if (type === 'file') return `檔案：${message.fileName || 'LINE 檔案'}`;
+  if (type === 'follow') return '加入好友';
+  if (type === 'unfollow') return '封鎖或取消好友';
+  return storedText || `[${type || 'event'}]`;
+}
+
+function formatThreadSummary(summary = '') {
+  const text = String(summary || '').trim();
+  if (!text) return '';
+  if (text.startsWith('[postback]')) return formatPostbackText({}, text);
+  if (text.startsWith('[follow]')) return '加入好友';
+  if (text.startsWith('[unfollow]')) return '封鎖或取消好友';
+  if (text.startsWith('[location]')) return text.replace('[location]', '位置').trim();
+  return text;
+}
+
 function eventCreatedAt(event = {}) {
   if (event.timestamp) {
     const value = new Date(Number(event.timestamp));
@@ -396,7 +459,7 @@ async function getThreads(env) {
       userId: row.source_user_id || row.source_group_id || '',
       status: row.status || 'open',
       risk: row.risk_level || 'low',
-      summary: row.summary || '',
+      summary: formatThreadSummary(row.summary || ''),
       unread: Number(row.unread_count || 0),
       tags: String(row.tags || '').split(',').map(v => v.trim()).filter(Boolean),
       signals: inferAudienceSignals(row),
@@ -415,7 +478,7 @@ async function getThread(env, threadId) {
   `).bind(threadId).first();
   if (!row) return { success: false, error: 'THREAD_NOT_FOUND' };
   const { results } = await env.DB.prepare(`
-    SELECT id, message_type, sender_role, sender_id, sender_name, message_text, created_at
+    SELECT id, message_type, sender_role, sender_id, sender_name, message_text, raw_json, created_at
     FROM line_messages
     WHERE thread_id = ?
     ORDER BY created_at ASC, inserted_at ASC
@@ -430,7 +493,7 @@ async function getThread(env, threadId) {
       userId: row.source_user_id || row.source_group_id || '',
       status: row.status || 'open',
       risk: row.risk_level || 'low',
-      summary: row.summary || '',
+      summary: formatThreadSummary(row.summary || ''),
       unread: Number(row.unread_count || 0),
       tags: String(row.tags || '').split(',').map(v => v.trim()).filter(Boolean),
       signals: inferAudienceSignals(row, results || []),
@@ -442,7 +505,8 @@ async function getThread(env, threadId) {
         senderRole: msg.sender_role || 'user',
         senderId: msg.sender_id || '',
         senderName: msg.sender_name || '',
-        text: msg.message_text || '',
+        text: formatLineMessageForDisplay(msg),
+        rawText: msg.message_text || '',
         createdAt: msg.created_at || '',
       })),
     },
