@@ -605,7 +605,7 @@ async function getAudience(env) {
 
 async function backfillAudienceSignals(env, limit = 300) {
   if (!env.DB) throw new Error('D1 binding missing');
-  const size = Math.max(1, Math.min(Number(limit) || 300, 1000));
+  const size = Math.max(1, Math.min(Number(limit) || 80, 80));
   const { results } = await env.DB.prepare(`
     SELECT id, display_name, summary, tags
     FROM line_threads
@@ -624,7 +624,7 @@ async function backfillAudienceSignals(env, limit = 300) {
       FROM line_messages
       WHERE thread_id = ?
       ORDER BY created_at DESC
-      LIMIT 80
+      LIMIT 20
     `).bind(row.id).all();
     const inferred = inferAudienceSignals(row, messages.results || []);
     const area = inferred.area === '未判定' ? '' : inferred.area;

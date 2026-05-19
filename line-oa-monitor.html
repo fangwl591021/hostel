@@ -350,8 +350,8 @@
       button.textContent = '同步中';
       button.className = 'rounded-2xl bg-slate-400 text-white px-4 py-3 font-semibold shrink-0';
       try {
-        await fetchJson(`${WORKER_URL}/api/line-oa/backfill-postbacks?uid=${encodeURIComponent(profile.userId)}&limit=1000`);
-        await fetchJson(`${WORKER_URL}/api/line-oa/backfill-signals?uid=${encodeURIComponent(profile.userId)}&limit=1000`);
+        await fetchJson(`${WORKER_URL}/api/line-oa/backfill-postbacks?uid=${encodeURIComponent(profile.userId)}&limit=200`);
+        await fetchJson(`${WORKER_URL}/api/line-oa/backfill-signals?uid=${encodeURIComponent(profile.userId)}&limit=80`);
         await loadAudience();
         await loadThreads();
         if (activeId) await loadThread(activeId);
