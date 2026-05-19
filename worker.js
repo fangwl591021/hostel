@@ -197,6 +197,21 @@ function inferAudienceSignals(row = {}, messages = []) {
 function getLineMessageText(event = {}, messageType = '') {
   const message = event.message || {};
   if (messageType === 'text') return String(message.text || '').trim();
+  if (messageType === 'postback') {
+    const data = String(event.postback?.data || '').trim();
+    const params = new URLSearchParams(data);
+    const readable = [
+      params.get('keyword'),
+      params.get('area'),
+      params.get('region'),
+      params.get('district'),
+      params.get('hotel'),
+      params.get('hostel'),
+      params.get('title'),
+      params.get('name'),
+    ].filter(Boolean).join(' ');
+    return ['[postback]', readable, data].filter(Boolean).join(' ');
+  }
   if (messageType === 'location') {
     return [
       '[location]',
@@ -566,6 +581,44 @@ async function backfillAudienceSignals(env, limit = 300) {
   return { success: true, data: { scanned, updated } };
 }
 
+async function backfillPostbackText(env, limit = 500) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const size = Math.max(1, Math.min(Number(limit) || 500, 1500));
+  const { results } = await env.DB.prepare(`
+    SELECT id, thread_id, raw_json, message_text
+    FROM line_messages
+    WHERE message_type = 'postback'
+      AND message_text = '[postback]'
+    ORDER BY inserted_at DESC
+    LIMIT ?
+  `).bind(size).all();
+
+  let scanned = 0;
+  let updated = 0;
+  const changedThreads = new Set();
+  for (const row of results || []) {
+    scanned += 1;
+    let event = null;
+    try { event = JSON.parse(row.raw_json || '{}'); } catch (_err) {}
+    const text = getLineMessageText(event || {}, 'postback');
+    if (!text || text === '[postback]') continue;
+    await env.DB.prepare(`
+      UPDATE line_messages
+      SET message_text = ?
+      WHERE id = ?
+    `).bind(text, row.id).run();
+    await env.DB.prepare(`
+      UPDATE line_threads
+      SET summary = CASE WHEN summary = '[postback]' THEN ? ELSE summary END,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(text, row.thread_id).run();
+    changedThreads.add(row.thread_id);
+    updated += 1;
+  }
+  return { success: true, data: { scanned, updated, changedThreads: changedThreads.size } };
+}
+
 async function checkEndpoint(url, options = {}) {
   if (!url) return { ok: false, status: 'missing', detail: 'not configured' };
   try {
@@ -683,6 +736,13 @@ export default {
         if (!uid) return json({ success: false, error: 'MISSING_UID' }, 400);
         if (!ADMIN_UIDS.has(uid)) return json({ success: false, error: 'FORBIDDEN' }, 403);
         return json(await backfillAudienceSignals(env, body.limit || url.searchParams.get('limit') || 300));
+      }
+      if (url.pathname === '/api/line-oa/backfill-postbacks' && ['GET', 'POST'].includes(request.method)) {
+        const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+        const uid = String(body.uid || url.searchParams.get('uid') || '').trim();
+        if (!uid) return json({ success: false, error: 'MISSING_UID' }, 400);
+        if (!ADMIN_UIDS.has(uid)) return json({ success: false, error: 'FORBIDDEN' }, 403);
+        return json(await backfillPostbackText(env, body.limit || url.searchParams.get('limit') || 500));
       }
       return json({ success: false, error: 'NOT_FOUND' }, 404);
     } catch (err) {
