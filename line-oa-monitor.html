@@ -19,7 +19,10 @@
         <p class="text-sm text-slate-500 mt-1">只監看、標記與分析，不自動代回覆。</p>
       </header>
       <div class="p-4 border-b border-slate-200 space-y-3">
-        <input id="search" class="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="搜尋姓名、ID、訊息或標籤">
+        <div class="flex gap-2">
+          <input id="search" class="min-w-0 flex-1 rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" placeholder="搜尋姓名、ID、訊息或標籤">
+          <button id="sync-now" type="button" class="rounded-2xl bg-emerald-500 text-white px-4 py-3 font-semibold shrink-0 hover:bg-emerald-600">同步</button>
+        </div>
         <div class="flex gap-2">
           <button class="filter rounded-full bg-slate-900 text-white px-4 py-2 text-sm font-semibold" data-filter="all">全部</button>
           <button class="filter rounded-full bg-slate-100 text-slate-700 px-4 py-2 text-sm font-semibold" data-filter="open">待回覆</button>
@@ -286,6 +289,28 @@
       el('tags').innerHTML = (data.data.tags || []).length ? data.data.tags.map(t => `<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">${t.label} ${t.count}</span>`).join('') : '<span class="text-sm text-slate-400">尚無標籤</span>';
     }
 
+    async function syncNow() {
+      const button = el('sync-now');
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = '同步中';
+      button.className = 'rounded-2xl bg-slate-400 text-white px-4 py-3 font-semibold shrink-0';
+      try {
+        await fetchJson(`${WORKER_URL}/api/line-oa/backfill-postbacks?uid=${encodeURIComponent(profile.userId)}&limit=1000`);
+        await fetchJson(`${WORKER_URL}/api/line-oa/backfill-signals?uid=${encodeURIComponent(profile.userId)}&limit=1000`);
+        await loadAudience();
+        await loadThreads();
+        if (activeId) await loadThread(activeId);
+        toast('同步完成');
+      } catch (err) {
+        toast(err.message || '同步失敗');
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+        button.className = 'rounded-2xl bg-emerald-500 text-white px-4 py-3 font-semibold shrink-0 hover:bg-emerald-600';
+      }
+    }
+
     async function updateActive(patch) {
       if (!activeId) return;
       const active = threads.find(t => t.id === activeId);
@@ -306,6 +331,7 @@
       renderThreads();
     }));
     el('search').addEventListener('input', renderThreads);
+    el('sync-now').addEventListener('click', () => syncNow());
     el('mark-open').addEventListener('click', () => updateActive({ status: 'open' }).catch(err => toast(err.message)));
     el('mark-pending').addEventListener('click', () => updateActive({ status: 'pending' }).catch(err => toast(err.message)));
     el('mark-closed').addEventListener('click', () => updateActive({ status: 'closed' }).catch(err => toast(err.message)));
@@ -324,6 +350,7 @@
         if (!liff.isLoggedIn()) return liff.login({ redirectUri: location.href });
         profile = await liff.getProfile();
       }
+      el('sync-now').disabled = false;
       await loadAudience();
       await loadThreads();
     }
