@@ -5,7 +5,7 @@
 LINE Official Account 只設定一個 Webhook：
 
 ```text
-https://hostel-worker.fangwl591021.workers.dev/line-webhook
+https://hotel.fangwl591021.workers.dev/line-webhook
 ```
 
 Worker 負責：
