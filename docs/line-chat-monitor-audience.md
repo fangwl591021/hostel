@@ -12,8 +12,8 @@ Worker 負責：
 
 - 驗證 LINE `x-line-signature`。
 - 寫入 D1：`line_threads`、`line_messages`。
-- 轉發同一批 events 到母站 webhook：`https://aiwe.cc/index.php/line_login/4572/`。
-- 母站若回傳 `replyPayload`，由 Worker 呼叫 LINE Reply API。
+- 將原始 LINE POST body 與原始 `x-line-signature` 轉發到母站 webhook：`https://aiwe.cc/index.php/line_login/4572/`。
+- 母站維持原本 webhook 行為，不需要修改，也由母站處理既有回覆流程。
 - 選填 `FORWARD_WEBHOOK_URL` 做第二系統觀察或日誌，不消耗 reply token。
 
 ## 環境變數

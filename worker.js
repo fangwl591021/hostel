@@ -44,13 +44,17 @@ function getGasWebhookUrl(env) {
   return String(env.MOTHER_WEBHOOK_URL || env.GAS_URL || env.GAS_WEBAPP_URL || '').trim();
 }
 
-async function postToMotherWebhook(env, payload) {
+async function postToMotherWebhook(env, rawBody, signature) {
   const url = getGasWebhookUrl(env);
   if (!url) return { skipped: true, reason: 'MOTHER_WEBHOOK_URL missing' };
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'LINE_WEBHOOK', payload }),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(signature ? { 'x-line-signature': signature } : {}),
+      'x-hostel-forwarded-by': 'hotel-worker',
+    },
+    body: rawBody,
     redirect: 'follow',
   });
   const text = await res.text();
@@ -246,11 +250,7 @@ async function handleLineWebhook(request, env, ctx) {
       console.warn('observer forward failed:', err.message);
     }
     try {
-      const result = await postToMotherWebhook(env, payload);
-      const replyPayload = result?.data?.replyPayload || result?.replyPayload || null;
-      if (replyPayload?.replyToken && Array.isArray(replyPayload.messages) && replyPayload.messages.length) {
-        await replyLineMessage(env, replyPayload);
-      }
+      await postToMotherWebhook(env, rawBody, signature);
     } catch (err) {
       console.error('mother webhook processing failed:', err.message);
     }
@@ -458,11 +458,7 @@ async function checkLineBot(env) {
 async function hubStatus(env) {
   const gasUrl = getGasWebhookUrl(env);
   return {
-    gas: await checkEndpoint(gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'GET_SETTINGS' }),
-    }),
+    gas: await checkEndpoint(gasUrl, { method: 'GET' }),
     forward: env.FORWARD_WEBHOOK_URL
       ? await checkEndpoint(env.FORWARD_WEBHOOK_URL, { method: 'GET' })
       : { ok: false, status: 'disabled', detail: 'FORWARD_WEBHOOK_URL not configured' },
