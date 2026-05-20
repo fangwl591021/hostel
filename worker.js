@@ -12,6 +12,7 @@ const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
 const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
+const POINTS_SURVEY_TRIGGER_ALIASES = ['住宿點數', '旅遊臺南住宿點數', '水映南瀛點數專區', '點數請領'];
 const POINTS_SURVEY_TEST_TRIGGER = '888';
 const POINTS_SURVEY_ENABLED = true;
 
@@ -538,7 +539,7 @@ function isPointsSurveyTrigger(event = {}) {
   const data = String(event.postback?.data || '').trim();
   if (answer === POINTS_SURVEY_TEST_TRIGGER || data.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`)) return true;
   if (!POINTS_SURVEY_ENABLED) return false;
-  return answer.includes(POINTS_SURVEY_TRIGGER) || data.includes(POINTS_SURVEY_TRIGGER);
+  return POINTS_SURVEY_TRIGGER_ALIASES.some(keyword => answer.includes(keyword) || data.includes(keyword));
 }
 
 function buildQuickReply(options = []) {
