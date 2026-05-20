@@ -14,7 +14,7 @@ const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw
 const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TRIGGER_ALIASES = ['住宿點數', '旅遊臺南住宿點數', '水映南瀛點數專區', '點數請領'];
 const POINTS_SURVEY_TEST_TRIGGER = '888';
-const POINTS_SURVEY_ENABLED = true;
+const POINTS_SURVEY_ENABLED = false;
 
 const POINTS_SURVEY_STEPS = [
   {
