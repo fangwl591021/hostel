@@ -11,6 +11,7 @@ const ADMIN_UIDS = new Set([
 const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
 const POINTS_SURVEY_TRIGGER = '水映南瀛點數專區';
+const POINTS_SURVEY_ENABLED = false;
 
 const POINTS_SURVEY_STEPS = [
   {
@@ -542,6 +543,7 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
 }
 
 async function handlePointsSurveyAutomation(env, payload = {}) {
+  if (!POINTS_SURVEY_ENABLED) return;
   const events = Array.isArray(payload.events) ? payload.events : [];
   for (const event of events) {
     const source = event.source || {};
