@@ -371,6 +371,76 @@ function surveyQuestionMessage(stepIndex, prefix = '') {
   };
 }
 
+function surveyOpeningMessage() {
+  const firstStep = POINTS_SURVEY_STEPS[0];
+  return {
+    type: 'flex',
+    altText: '旅遊臺南住宿點數問卷',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '14px',
+        spacing: '10px',
+        contents: [
+          {
+            type: 'box',
+            layout: 'horizontal',
+            spacing: '10px',
+            contents: [
+              {
+                type: 'image',
+                url: POINTS_SURVEY_OPENING_IMAGE_URL,
+                size: 'lg',
+                aspectRatio: '1:1',
+                aspectMode: 'fit',
+                flex: 0,
+              },
+              {
+                type: 'box',
+                layout: 'vertical',
+                spacing: '6px',
+                flex: 1,
+                contents: [
+                  {
+                    type: 'text',
+                    text: '「旅遊臺南 住宿點數」活動進行中，點數每週三陸續開放，數量有限、領完為止。',
+                    wrap: true,
+                    size: 'sm',
+                    color: '#111827',
+                  },
+                  {
+                    type: 'text',
+                    text: '想邀請你回答幾個簡單問題，讓我們更了解大家對臺南旅宿與花漾埤塘旅遊的興趣。',
+                    wrap: true,
+                    size: 'sm',
+                    color: '#111827',
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            type: 'separator',
+            margin: 'sm',
+          },
+          {
+            type: 'text',
+            text: firstStep.title,
+            wrap: true,
+            weight: 'bold',
+            size: 'md',
+            color: '#0f172a',
+          },
+        ],
+      },
+    },
+    quickReply: buildQuickReply(firstStep.options),
+  };
+}
+
 function surveyCompleteMessage(profile = {}) {
   const answers = profile.answers || {};
   const lines = [
@@ -463,22 +533,7 @@ async function startPointsSurvey(env, event = {}) {
   await appendThreadSurveyTags(env, threadId, ['問卷:點數候補', '問卷:進行中']);
   return {
     replyToken: event.replyToken,
-    messages: [
-      {
-        type: 'image',
-        originalContentUrl: POINTS_SURVEY_OPENING_IMAGE_URL,
-        previewImageUrl: POINTS_SURVEY_OPENING_IMAGE_URL,
-      },
-      {
-        type: 'text',
-        text: [
-          '「旅遊臺南 住宿點數」活動進行中，點數每週三陸續開放，數量有限、領完為止。',
-          '',
-          '想邀請你回答幾個簡單問題，讓我們更了解大家對臺南旅宿與花漾埤塘旅遊的興趣。',
-        ].join('\n'),
-      },
-      surveyQuestionMessage(0),
-    ],
+    messages: [surveyOpeningMessage()],
   };
 }
 
