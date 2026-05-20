@@ -10,7 +10,7 @@ const ADMIN_UIDS = new Set([
 ]);
 const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
-const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://hotel.fangwl591021.workers.dev/assets/survey-opening-sticker.png';
+const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TEST_TRIGGER = '888';
 const POINTS_SURVEY_ENABLED = false;
@@ -381,58 +381,35 @@ function surveyOpeningMessage() {
       size: 'giga',
       body: {
         type: 'box',
-        layout: 'vertical',
-        paddingAll: '16px',
-        spacing: '12px',
+        layout: 'horizontal',
+        paddingAll: '10px',
         contents: [
           {
-            type: 'box',
-            layout: 'horizontal',
-            spacing: '12px',
-            contents: [
-              {
-                type: 'image',
-                url: POINTS_SURVEY_OPENING_IMAGE_URL,
-                size: 'full',
-                aspectRatio: '1:1',
-                aspectMode: 'fit',
-                flex: 5,
-              },
-              {
-                type: 'box',
-                layout: 'vertical',
-                spacing: '6px',
-                flex: 7,
-                contents: [
-                  {
-                    type: 'text',
-                    text: '「旅遊臺南 住宿點數」活動進行中，點數每週三陸續開放，數量有限、領完為止。',
-                    wrap: true,
-                    size: 'sm',
-                    color: '#111827',
-                  },
-                  {
-                    type: 'text',
-                    text: '想邀請你回答幾個簡單問題，讓我們更了解大家對臺南旅宿與花漾埤塘旅遊的興趣。',
-                    wrap: true,
-                    size: 'sm',
-                    color: '#111827',
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            type: 'separator',
-            margin: 'sm',
+            type: 'image',
+            url: POINTS_SURVEY_OPENING_IMAGE_URL,
+            size: 'md',
+            flex: 1,
+            aspectRatio: '20:17',
+            aspectMode: 'fit',
           },
           {
             type: 'text',
-            text: firstStep.title,
+            text: '「旅遊臺南住宿點數」活動進行中，點數每週三陸續開放，數量有限、領完為止。想邀請你回答幾個簡單問題，讓我們更了解大家對臺南旅宿與花漾埤塘旅遊的興趣。',
             wrap: true,
-            weight: 'bold',
-            size: 'md',
-            color: '#0f172a',
+            flex: 3,
+            size: 'sm',
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: firstStep.title,
+            align: 'center',
+            wrap: true,
           },
         ],
       },
