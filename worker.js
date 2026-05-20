@@ -51,6 +51,194 @@ const POINTS_SURVEY_STEPS = [
     title: '你近期比較可能在什麼時間參考臺南旅遊或住宿資訊？',
     options: ['本週', '2 週內', '1 個月內', '6 月底前', '還不確定'],
   },
+  {
+    key: 'budget',
+    title: '你通常會參考哪個住宿預算區間？',
+    options: ['2000 內', '2000-4000', '4000-6000', '6000 以上', '還不確定'],
+  },
+];
+
+const ACCOMMODATION_RECOMMENDATIONS = [
+  {
+    name: '福爾摩沙遊艇酒店',
+    type: '旅館',
+    district: '安平區',
+    address: '臺南市安平區安平路988號',
+    phone: '06-3911313',
+    website: 'https://www.formosayacht.com.tw',
+    areaGroups: ['台南市區/安平'],
+    audienceTags: ['親子家庭', '情侶/夫妻', '朋友同行'],
+    lodgingTags: ['飯店', '先看優惠'],
+    budgetTags: ['4000-6000', '6000 以上', '還不確定'],
+  },
+  {
+    name: '夏都城旅安平館',
+    type: '旅館',
+    district: '南區',
+    address: '臺南市南區新建路47號',
+    phone: '06-292-4567',
+    website: 'https://www.tnchateau.com.tw',
+    areaGroups: ['台南市區/安平'],
+    audienceTags: ['親子家庭', '情侶/夫妻'],
+    lodgingTags: ['飯店', '親子住宿', '先看優惠'],
+    budgetTags: ['4000-6000', '6000 以上', '還不確定'],
+  },
+  {
+    name: '台南老爺行旅',
+    type: '旅館',
+    district: '東區',
+    address: '臺南市東區中華東路一段368號',
+    phone: '06-2366168',
+    website: 'https://www.hotelroyal.com.tw',
+    areaGroups: ['台南市區/安平'],
+    audienceTags: ['情侶/夫妻', '親子家庭', '朋友同行'],
+    lodgingTags: ['飯店', '先看優惠'],
+    budgetTags: ['4000-6000', '6000 以上', '還不確定'],
+  },
+  {
+    name: '澤居',
+    type: '民宿',
+    district: '安平區',
+    address: '台南市安平區世平路168號',
+    phone: '0908331857',
+    website: '',
+    areaGroups: ['台南市區/安平'],
+    audienceTags: ['情侶/夫妻', '朋友同行'],
+    lodgingTags: ['民宿', '先看優惠'],
+    budgetTags: ['2000-4000', '4000-6000', '還不確定'],
+  },
+  {
+    name: '玩聚安平',
+    type: '民宿',
+    district: '安平區',
+    address: '臺南市安平區安平路606巷17弄13號',
+    phone: '0976677859',
+    website: 'https://brick.url.tw',
+    areaGroups: ['台南市區/安平'],
+    audienceTags: ['親子家庭', '朋友同行'],
+    lodgingTags: ['民宿', '親子住宿', '先看優惠'],
+    budgetTags: ['2000-4000', '4000-6000', '還不確定'],
+  },
+  {
+    name: '鹽舍休閒民宿',
+    type: '民宿',
+    district: '北門區',
+    address: '臺南市北門區北門里井子腳80-9號',
+    phone: '0928101925',
+    website: 'https://www.salt-house57.com',
+    areaGroups: ['北門/將軍/七股'],
+    audienceTags: ['情侶/夫妻', '親子家庭', '朋友同行'],
+    lodgingTags: ['民宿', '先看優惠'],
+    budgetTags: ['2000-4000', '4000-6000', '還不確定'],
+  },
+  {
+    name: '鹽鄉民宿',
+    type: '民宿',
+    district: '北門區',
+    address: '臺南市北門區北門里井子腳57號',
+    phone: '0928101925',
+    website: 'https://www.salt-house57.com',
+    areaGroups: ['北門/將軍/七股'],
+    audienceTags: ['情侶/夫妻', '朋友同行'],
+    lodgingTags: ['民宿', '先看優惠'],
+    budgetTags: ['2000 內', '2000-4000', '還不確定'],
+  },
+  {
+    name: '幸福種子',
+    type: '民宿',
+    district: '學甲區',
+    address: '台南市學甲區民權路38號',
+    phone: '0905232918',
+    website: '',
+    areaGroups: ['北門/將軍/七股'],
+    audienceTags: ['親子家庭', '朋友同行'],
+    lodgingTags: ['民宿', '先看優惠'],
+    budgetTags: ['2000 內', '2000-4000', '還不確定'],
+  },
+  {
+    name: '趣淘漫旅',
+    type: '旅館',
+    district: '楠西區',
+    address: '臺南市楠西區密枝里密枝102之5號',
+    phone: '06-5753333',
+    website: 'https://tainan.chamcham.com.tw',
+    areaGroups: ['新化/玉井/楠西'],
+    audienceTags: ['親子家庭', '朋友同行', '團體/公司'],
+    lodgingTags: ['飯店', '親子住宿', '先看優惠'],
+    budgetTags: ['4000-6000', '6000 以上', '還不確定'],
+  },
+  {
+    name: '虎頭埤風景區',
+    type: '露營區',
+    district: '新化區',
+    address: '臺南市新化區中興路42巷36號',
+    phone: '06-5901325',
+    website: 'https://htp.tainan.gov.tw',
+    areaGroups: ['新化/玉井/楠西'],
+    audienceTags: ['親子家庭', '朋友同行', '團體/公司'],
+    lodgingTags: ['露營區', '親子住宿', '先看優惠'],
+    budgetTags: ['2000 內', '2000-4000', '還不確定'],
+  },
+  {
+    name: '神秘氣場露營區',
+    type: '露營區',
+    district: '楠西區',
+    address: '臺南市楠西區灣丘里香蕉山51之6號',
+    phone: '0933914636',
+    website: 'https://www.facebook.com',
+    areaGroups: ['新化/玉井/楠西'],
+    audienceTags: ['親子家庭', '朋友同行'],
+    lodgingTags: ['露營區', '親子住宿', '先看優惠'],
+    budgetTags: ['2000 內', '2000-4000', '還不確定'],
+  },
+  {
+    name: '天喜悅溫泉會館',
+    type: '民宿',
+    district: '楠西區',
+    address: '臺南市楠西區龜丹里龜丹59之3號',
+    phone: '06-5747232',
+    website: '',
+    areaGroups: ['新化/玉井/楠西'],
+    audienceTags: ['情侶/夫妻', '親子家庭'],
+    lodgingTags: ['民宿', '先看優惠'],
+    budgetTags: ['2000-4000', '4000-6000', '還不確定'],
+  },
+  {
+    name: '關子嶺富野溫泉會館',
+    type: '旅館',
+    district: '白河區',
+    address: '臺南市白河區關嶺里關子嶺28號',
+    phone: '06-682-2288',
+    website: 'https://www.hoyaresort.com.tw',
+    areaGroups: ['白河/東山/關子嶺'],
+    audienceTags: ['情侶/夫妻', '親子家庭'],
+    lodgingTags: ['飯店', '先看優惠'],
+    budgetTags: ['4000-6000', '6000 以上', '還不確定'],
+  },
+  {
+    name: '失眠圖書館',
+    type: '民宿',
+    district: '後壁區',
+    address: '臺南市後壁區菁寮里173號',
+    phone: '06-6622319',
+    website: '',
+    areaGroups: ['白河/東山/關子嶺'],
+    audienceTags: ['情侶/夫妻', '朋友同行', '自己一人'],
+    lodgingTags: ['民宿', '先看優惠'],
+    budgetTags: ['2000-4000', '4000-6000', '還不確定'],
+  },
+  {
+    name: '薇風情汽車旅館',
+    type: '旅館',
+    district: '六甲區',
+    address: '臺南市六甲區龜仔港303巷70號',
+    phone: '06-6985599',
+    website: 'https://www.wemotel.com.tw',
+    areaGroups: ['白河/東山/關子嶺'],
+    audienceTags: ['情侶/夫妻', '朋友同行'],
+    lodgingTags: ['飯店', '先看優惠'],
+    budgetTags: ['2000-4000', '4000-6000', '還不確定'],
+  },
 ];
 
 const LINE_NEGATIVE_KEYWORDS = ['退款', '退費', '取消', '生氣', '客訴', '抱怨', '不滿', '失望', '負評', '投訴'];
@@ -429,13 +617,148 @@ function surveyCompleteMessage(profile = {}) {
     `臺南區域：${answers.tainan_area || profile.area || '未填'}`,
     `同行型態：${answers.party_type || profile.party_type || '未填'}`,
     `住宿偏好：${answers.lodging_type || profile.lodging_type || '未填'}`,
-    `埤塘興趣：${answers.pond_interest || profile.budget || '未填'}`,
+    `埤塘興趣：${answers.pond_interest || '未填'}`,
     `參考時間：${answers.visit_time || profile.travel_time || '未填'}`,
+    `預算區間：${answers.budget || profile.budget || '未填'}`,
+    '',
+    '下方先依照你的回答列出幾間可參考的合作旅宿，實際房型與價格請以旅宿公告為準。',
     '',
     '「旅遊臺南 住宿點數」點數效期至 2026/6/30 24:00，合作旅宿、活動規則與埤塘景點資訊請以官網公告為準：',
     'https://tainantravels.net/',
   ];
   return { type: 'text', text: lines.join('\n') };
+}
+
+function googleMapSearchUrl(address = '') {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+}
+
+function lineSafeText(value = '', maxLength = 120) {
+  const text = String(value || '').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function scoreAccommodationRecommendation(item, answers = {}) {
+  let score = 0;
+  const uncertain = '還不確定';
+  if (answers.tainan_area && item.areaGroups.includes(answers.tainan_area)) score += 4;
+  if (answers.tainan_area === uncertain) score += 1;
+  if (answers.party_type && item.audienceTags.includes(answers.party_type)) score += 4;
+  if (answers.lodging_type && item.lodgingTags.includes(answers.lodging_type)) score += 3;
+  if (answers.budget && item.budgetTags.includes(answers.budget)) score += 3;
+  if (answers.interest === '合作旅宿') score += 1;
+  if (answers.pond_interest && answers.pond_interest !== uncertain && item.areaGroups.includes('新化/玉井/楠西')) score += 1;
+  return score;
+}
+
+function getAccommodationRecommendations(answers = {}, limit = 5) {
+  return ACCOMMODATION_RECOMMENDATIONS
+    .map((item, index) => ({
+      ...item,
+      score: scoreAccommodationRecommendation(item, answers),
+      index,
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, limit);
+}
+
+function buildAccommodationBubble(item, answers = {}) {
+  const matchedTags = [
+    item.district,
+    item.type,
+    answers.party_type && item.audienceTags.includes(answers.party_type) ? answers.party_type : '',
+    answers.budget && item.budgetTags.includes(answers.budget) ? answers.budget : '',
+  ].filter(Boolean);
+  const buttons = [
+    {
+      type: 'button',
+      style: 'primary',
+      height: 'sm',
+      action: {
+        type: 'uri',
+        label: 'Google Map',
+        uri: googleMapSearchUrl(item.address),
+      },
+    },
+  ];
+  if (item.website) {
+    buttons.push({
+      type: 'button',
+      style: 'secondary',
+      height: 'sm',
+      action: {
+        type: 'uri',
+        label: '旅宿網站',
+        uri: item.website,
+      },
+    });
+  }
+  return {
+    type: 'bubble',
+    size: 'mega',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: [
+        {
+          type: 'text',
+          text: lineSafeText(item.name, 40),
+          weight: 'bold',
+          size: 'lg',
+          wrap: true,
+        },
+        {
+          type: 'text',
+          text: matchedTags.join('｜'),
+          color: '#1f2a44',
+          size: 'sm',
+          wrap: true,
+        },
+        {
+          type: 'text',
+          text: lineSafeText(item.address, 80),
+          color: '#667085',
+          size: 'sm',
+          wrap: true,
+        },
+        {
+          type: 'text',
+          text: `參考預算：${item.budgetTags.join(' / ')}`,
+          color: '#0f172a',
+          size: 'xs',
+          wrap: true,
+        },
+        {
+          type: 'text',
+          text: item.phone ? `電話：${item.phone}` : '價格與空房請以旅宿公告為準',
+          color: '#667085',
+          size: 'xs',
+          wrap: true,
+        },
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: buttons,
+    },
+  };
+}
+
+function buildAccommodationCarouselMessage(answers = {}) {
+  const matches = getAccommodationRecommendations(answers, 5);
+  if (!matches.length) return null;
+  return {
+    type: 'flex',
+    altText: '依照你的回答推薦合作旅宿',
+    contents: {
+      type: 'carousel',
+      contents: matches.map(item => buildAccommodationBubble(item, answers)),
+    },
+  };
 }
 
 async function getSurveyProfile(env, userId) {
@@ -555,7 +878,7 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   if (step.key === 'visit_time') updates.travel_time = answer;
   if (step.key === 'party_type') updates.party_type = answer;
   if (step.key === 'lodging_type') updates.lodging_type = answer;
-  if (step.key === 'pond_interest') updates.budget = answer;
+  if (step.key === 'budget') updates.budget = answer;
   const now = new Date().toISOString();
   await env.DB.prepare(`
     UPDATE line_survey_profiles
@@ -603,9 +926,12 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
     };
   }
 
+  const messages = [surveyCompleteMessage({ ...updates, answers })];
+  const recommendationMessage = buildAccommodationCarouselMessage(answers);
+  if (recommendationMessage) messages.push(recommendationMessage);
   return {
     replyToken: event.replyToken,
-    messages: [surveyCompleteMessage({ ...updates, answers })],
+    messages,
   };
 }
 
