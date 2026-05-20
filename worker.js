@@ -396,13 +396,13 @@ function surveyOpeningMessage() {
                 size: 'full',
                 aspectRatio: '1:1',
                 aspectMode: 'fit',
-                flex: 4,
+                flex: 5,
               },
               {
                 type: 'box',
                 layout: 'vertical',
                 spacing: '6px',
-                flex: 6,
+                flex: 7,
                 contents: [
                   {
                     type: 'text',
