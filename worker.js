@@ -382,14 +382,14 @@ function surveyOpeningMessage() {
       body: {
         type: 'box',
         layout: 'horizontal',
-        paddingAll: '10px',
+        paddingAll: '8px',
         contents: [
           {
             type: 'image',
             url: POINTS_SURVEY_OPENING_IMAGE_URL,
             size: 'md',
             flex: 1,
-            aspectRatio: '20:17',
+            aspectRatio: '20:20',
             aspectMode: 'fit',
           },
           {
@@ -404,6 +404,7 @@ function surveyOpeningMessage() {
       footer: {
         type: 'box',
         layout: 'vertical',
+        paddingAll: '5px',
         contents: [
           {
             type: 'text',
