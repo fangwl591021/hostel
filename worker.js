@@ -10,34 +10,45 @@ const ADMIN_UIDS = new Set([
 ]);
 const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
-const POINTS_SURVEY_TRIGGER = '水映南瀛點數專區';
+const POINTS_SURVEY_TRIGGER = '住宿點數';
+const POINTS_SURVEY_TEST_TRIGGER = '888';
 const POINTS_SURVEY_ENABLED = false;
 
 const POINTS_SURVEY_STEPS = [
   {
-    key: 'area',
-    title: '先幫我選一個你比較想找住宿的區域：',
+    key: 'interest',
+    title: '這次你最想了解哪一類臺南旅遊資訊？',
+    options: ['住宿優惠', '合作旅宿', '埤塘景點', '打卡加碼', '攝影活動', '都想看看'],
+  },
+  {
+    key: 'residence_area',
+    title: '你目前主要居住在哪個地區？',
+    options: ['臺南市', '高雄/屏東', '嘉義/雲林', '中彰投', '北北基桃', '其他地區'],
+  },
+  {
+    key: 'tainan_area',
+    title: '你比較想了解哪一區的臺南旅宿或景點資訊？',
     options: ['台南市區/安平', '北門/將軍/七股', '新化/玉井/楠西', '白河/東山/關子嶺', '還不確定'],
   },
   {
-    key: 'travel_time',
-    title: '你大概什麼時候會安排台南旅遊或住宿？',
-    options: ['本週', '2 週內', '1 個月內', '連假/暑假', '還不確定'],
-  },
-  {
     key: 'party_type',
-    title: '這次比較像哪一種同行型態？',
-    options: ['情侶/夫妻', '親子家庭', '朋友同行', '獨旅', '團體/公司'],
+    title: '你通常會和誰一起參考臺南旅遊或住宿資訊？',
+    options: ['情侶/夫妻', '親子家庭', '朋友同行', '自己一人', '團體/公司'],
   },
   {
     key: 'lodging_type',
-    title: '你偏好哪一類住宿或活動資訊？',
-    options: ['民宿', '飯店', '親子住宿', '包棟', '先看優惠'],
+    title: '如果來臺南旅行，你比較想參考哪一類住宿資訊？',
+    options: ['民宿', '飯店', '親子住宿', '露營區', '先看優惠'],
   },
   {
-    key: 'budget',
-    title: '一晚住宿預算大概落在哪裡？',
-    options: ['2000 內', '2000-4000', '4000-6000', '6000 以上', '看活動優惠'],
+    key: 'pond_interest',
+    title: '本次活動主題包含「花漾埤塘 × 臺南住宿體驗」，你對哪一類資訊比較有興趣？',
+    options: ['德元埤', '葫蘆埤', '虎頭埤', '埤塘一日遊', '還不確定'],
+  },
+  {
+    key: 'visit_time',
+    title: '你近期比較可能在什麼時間參考臺南旅遊或住宿資訊？',
+    options: ['本週', '2 週內', '1 個月內', '6 月底前', '還不確定'],
   },
 ];
 
@@ -336,6 +347,8 @@ function getSurveyAnswerText(event = {}) {
 function isPointsSurveyTrigger(event = {}) {
   const answer = getSurveyAnswerText(event);
   const data = String(event.postback?.data || '').trim();
+  if (answer === POINTS_SURVEY_TEST_TRIGGER || data.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`)) return true;
+  if (!POINTS_SURVEY_ENABLED) return false;
   return answer.includes(POINTS_SURVEY_TRIGGER) || data.includes(POINTS_SURVEY_TRIGGER);
 }
 
@@ -358,17 +371,20 @@ function surveyQuestionMessage(stepIndex, prefix = '') {
 }
 
 function surveyCompleteMessage(profile = {}) {
+  const answers = profile.answers || {};
   const lines = [
-    '已幫你登記點數候補與旅宿偏好。',
+    '謝謝你的回答，我們已收到你的旅遊偏好資料。',
     '',
-    `住宿區域：${profile.area || '未填'}`,
-    `旅遊時間：${profile.travel_time || '未填'}`,
-    `同行型態：${profile.party_type || '未填'}`,
-    `住宿偏好：${profile.lodging_type || '未填'}`,
-    `預算：${profile.budget || '未填'}`,
+    `想了解：${answers.interest || '未填'}`,
+    `居住地區：${answers.residence_area || '未填'}`,
+    `臺南區域：${answers.tainan_area || profile.area || '未填'}`,
+    `同行型態：${answers.party_type || profile.party_type || '未填'}`,
+    `住宿偏好：${answers.lodging_type || profile.lodging_type || '未填'}`,
+    `埤塘興趣：${answers.pond_interest || profile.budget || '未填'}`,
+    `參考時間：${answers.visit_time || profile.travel_time || '未填'}`,
     '',
-    '點數每週三補發 5 萬點；在補發前，我們會優先用這些資料通知你比較適合的活動與住宿資訊。',
-    `活動住宿頁：${POINTS_ACTIVITY_URL}`,
+    '「旅遊臺南 住宿點數」點數效期至 2026/6/30 24:00，合作旅宿、活動規則與埤塘景點資訊請以官網公告為準：',
+    'https://tainantravels.net/',
   ];
   return { type: 'text', text: lines.join('\n') };
 }
@@ -414,15 +430,22 @@ async function startPointsSurvey(env, event = {}) {
     INSERT INTO line_survey_profiles (
       line_user_id, thread_id, display_name, picture_url, trigger_keyword,
       current_step, completed, source_url, answers_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'area', 0, ?, '{}', ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, 'interest', 0, ?, '{}', ?, ?)
     ON CONFLICT(line_user_id) DO UPDATE SET
       thread_id = excluded.thread_id,
       display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE line_survey_profiles.display_name END,
       picture_url = CASE WHEN excluded.picture_url <> '' THEN excluded.picture_url ELSE line_survey_profiles.picture_url END,
       trigger_keyword = excluded.trigger_keyword,
-      current_step = CASE WHEN line_survey_profiles.completed = 1 THEN 'area' ELSE line_survey_profiles.current_step END,
-      completed = CASE WHEN line_survey_profiles.completed = 1 THEN 0 ELSE line_survey_profiles.completed END,
-      opt_in = CASE WHEN line_survey_profiles.completed = 1 THEN 0 ELSE line_survey_profiles.opt_in END,
+      current_step = 'interest',
+      completed = 0,
+      area = '',
+      travel_time = '',
+      party_type = '',
+      lodging_type = '',
+      budget = '',
+      opt_in = 0,
+      last_answer = '',
+      answers_json = '{}',
       source_url = excluded.source_url,
       updated_at = excluded.updated_at
   `).bind(
@@ -443,8 +466,9 @@ async function startPointsSurvey(env, event = {}) {
       {
         type: 'text',
         text: [
-          '水映南瀛點數目前已領取完畢，每週三會再補發 5 萬點。',
-          '先回答 5 題，我幫你登記候補與旅宿偏好；之後會優先通知你比較適合的住宿與活動資訊。',
+          '「旅遊臺南 住宿點數」活動進行中，點數每週三陸續開放，數量有限、領完為止。',
+          '',
+          '想邀請你回答幾個簡單問題，讓我們更了解大家對臺南旅宿與花漾埤塘旅遊的興趣。',
         ].join('\n'),
       },
       surveyQuestionMessage(0),
@@ -488,7 +512,11 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
     lodging_type: current.lodging_type || '',
     budget: current.budget || '',
   };
-  updates[step.key] = answer;
+  if (step.key === 'tainan_area') updates.area = answer;
+  if (step.key === 'visit_time') updates.travel_time = answer;
+  if (step.key === 'party_type') updates.party_type = answer;
+  if (step.key === 'lodging_type') updates.lodging_type = answer;
+  if (step.key === 'pond_interest') updates.budget = answer;
   const now = new Date().toISOString();
   await env.DB.prepare(`
     UPDATE line_survey_profiles
@@ -527,7 +555,7 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
     completed ? '問卷:完成' : '問卷:進行中',
   ];
   if (completed) tagAdds.push('分眾:可推播');
-  await appendThreadSurveyTags(env, threadId, tagAdds, step.key === 'area' ? { inferred_area: answer } : {});
+  await appendThreadSurveyTags(env, threadId, tagAdds, step.key === 'tainan_area' ? { inferred_area: answer } : {});
 
   if (nextStep) {
     return {
@@ -538,12 +566,11 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
 
   return {
     replyToken: event.replyToken,
-    messages: [surveyCompleteMessage(updates)],
+    messages: [surveyCompleteMessage({ ...updates, answers })],
   };
 }
 
 async function handlePointsSurveyAutomation(env, payload = {}) {
-  if (!POINTS_SURVEY_ENABLED) return;
   const events = Array.isArray(payload.events) ? payload.events : [];
   for (const event of events) {
     const source = event.source || {};
