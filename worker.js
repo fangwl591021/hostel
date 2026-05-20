@@ -378,31 +378,31 @@ function surveyOpeningMessage() {
     altText: '旅遊臺南住宿點數問卷',
     contents: {
       type: 'bubble',
-      size: 'mega',
+      size: 'giga',
       body: {
         type: 'box',
         layout: 'vertical',
-        paddingAll: '14px',
-        spacing: '10px',
+        paddingAll: '16px',
+        spacing: '12px',
         contents: [
           {
             type: 'box',
             layout: 'horizontal',
-            spacing: '10px',
+            spacing: '12px',
             contents: [
               {
                 type: 'image',
                 url: POINTS_SURVEY_OPENING_IMAGE_URL,
-                size: 'lg',
+                size: 'full',
                 aspectRatio: '1:1',
                 aspectMode: 'fit',
-                flex: 0,
+                flex: 4,
               },
               {
                 type: 'box',
                 layout: 'vertical',
                 spacing: '6px',
-                flex: 1,
+                flex: 6,
                 contents: [
                   {
                     type: 'text',
