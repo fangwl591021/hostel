@@ -581,6 +581,15 @@ async function getAudience(env) {
       tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
     });
   }
+  const { results: riskRows } = await env.DB.prepare(`
+    SELECT id, display_name, picture_url, source_user_id, source_group_id,
+           risk_level, summary, unread_count, last_message_at
+    FROM line_threads
+    WHERE risk_level IN ('high', 'medium')
+    ORDER BY CASE risk_level WHEN 'high' THEN 0 ELSE 1 END,
+             COALESCE(last_message_at, created_at) DESC
+    LIMIT 20
+  `).all();
   return {
     success: true,
     data: {
@@ -599,6 +608,16 @@ async function getAudience(env) {
       },
       interests,
       tags: [...tagCounts.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count).slice(0, 12),
+      riskThreads: (riskRows || []).map(row => ({
+        id: row.id,
+        name: row.display_name || '',
+        pictureUrl: row.picture_url || '',
+        userId: row.source_user_id || row.source_group_id || '',
+        risk: row.risk_level || 'low',
+        summary: formatThreadSummary(row.summary || ''),
+        unread: Number(row.unread_count || 0),
+        lastMessageAt: row.last_message_at || '',
+      })),
     },
   };
 }

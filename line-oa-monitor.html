@@ -85,6 +85,13 @@
           <p class="text-sm text-slate-500 font-semibold mb-2">常見標籤</p>
           <div id="tags" class="flex flex-wrap gap-2"></div>
         </div>
+        <div class="mt-4">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-sm text-slate-500 font-semibold">風險名單</p>
+            <button id="show-risk-filter" type="button" class="rounded-full bg-rose-50 text-rose-700 px-3 py-1 text-xs font-bold">看全部</button>
+          </div>
+          <div id="risk-list" class="space-y-2"></div>
+        </div>
       </section>
       <section hidden class="rounded-2xl border border-slate-200 p-4">
         <div class="flex items-center justify-between gap-3 mb-3">
@@ -179,6 +186,16 @@
       const d = new Date(value);
       if (Number.isNaN(d.getTime())) return value;
       return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[ch]));
     }
 
     function statusLabel(value) {
@@ -341,6 +358,24 @@
       const max = Math.max(...interests.map(i => Number(i.count || 0)), 1);
       el('interests').innerHTML = interests.length ? interests.map(i => `<div><div class="flex justify-between text-sm"><b>${i.label}</b><span>${i.count}</span></div><div class="h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-emerald-500" style="width:${Math.max(8, Math.round(i.count / max * 100))}%"></div></div></div>`).join('') : '<p class="text-sm text-slate-400">累積更多訊息後會顯示。</p>';
       el('tags').innerHTML = (data.data.tags || []).length ? data.data.tags.map(t => `<span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">${t.label} ${t.count}</span>`).join('') : '<span class="text-sm text-slate-400">尚無標籤</span>';
+      const riskRows = data.data.riskThreads || [];
+      el('risk-list').innerHTML = riskRows.length ? riskRows.map(row => `
+        <button type="button" data-id="${escapeHtml(row.id)}" class="risk-row w-full text-left rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 hover:bg-rose-100">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <b class="block truncate text-sm text-slate-900">${escapeHtml(row.name || '訪客')}</b>
+              <span class="block truncate text-[11px] text-slate-400">${escapeHtml(row.userId || '')}</span>
+            </div>
+            <span class="shrink-0 rounded-full ${riskClass(row.risk)} px-2 py-1 text-[11px] font-bold">${row.risk === 'high' ? '高' : '中'}</span>
+          </div>
+          <p class="mt-1 line-clamp-2 text-xs text-slate-600">${escapeHtml(row.summary || '')}</p>
+          <div class="mt-1 flex items-center justify-between text-[11px] text-slate-400">
+            <span>${formatTime(row.lastMessageAt)}</span>
+            <span>${Number(row.unread || 0) ? Number(row.unread || 0) + ' 未讀' : ''}</span>
+          </div>
+        </button>
+      `).join('') : '<p class="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-400">目前沒有高風險或中風險名單</p>';
+      document.querySelectorAll('.risk-row').forEach(btn => btn.addEventListener('click', () => loadThread(btn.dataset.id).catch(err => toast(err.message))));
     }
 
     async function syncNow() {
@@ -504,6 +539,15 @@
       btn.className = 'filter rounded-full bg-slate-900 text-white px-4 py-2 text-sm font-semibold';
       renderThreads();
     }));
+    el('show-risk-filter').addEventListener('click', () => {
+      filter = 'risk';
+      document.querySelectorAll('.filter').forEach(item => {
+        item.className = item.dataset.filter === 'risk'
+          ? 'filter rounded-full bg-slate-900 text-white px-4 py-2 text-sm font-semibold'
+          : 'filter rounded-full bg-slate-100 text-slate-700 px-4 py-2 text-sm font-semibold';
+      });
+      renderThreads();
+    });
     el('search').addEventListener('input', renderThreads);
     el('sync-now').addEventListener('click', () => syncNow());
     el('broadcast-refresh').addEventListener('click', () => loadBroadcastJobs().catch(err => toast(err.message)));
