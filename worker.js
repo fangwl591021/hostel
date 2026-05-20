@@ -10,7 +10,7 @@ const ADMIN_UIDS = new Set([
 ]);
 const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
-const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
+const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://hotel.fangwl591021.workers.dev/assets/survey-opening-sticker.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TEST_TRIGGER = '888';
 const POINTS_SURVEY_ENABLED = false;
@@ -1545,6 +1545,21 @@ async function serveGithubHtml(filename) {
   });
 }
 
+async function serveGithubAsset(filename, contentType) {
+  const safeName = String(filename || '').replace(/[^a-zA-Z0-9._-]/g, '');
+  const res = await fetch(`https://raw.githubusercontent.com/fangwl591021/hostel/main/assets/${safeName}?v=${Date.now()}`, {
+    cf: { cacheTtl: 0, cacheEverything: false },
+  });
+  if (!res.ok) return json({ success: false, error: `ASSET_FETCH_FAILED_${res.status}` }, 404);
+  return new Response(res.body, {
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=300',
+      ...CORS,
+    },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
@@ -1562,6 +1577,9 @@ export default {
       }
       if ((url.pathname === '/broadcast' || url.pathname === '/line-broadcast.html') && request.method === 'GET') {
         return serveGithubHtml('line-broadcast.html');
+      }
+      if (url.pathname === '/assets/survey-opening-sticker.png' && request.method === 'GET') {
+        return serveGithubAsset('survey-opening-sticker.png', 'image/png');
       }
       if (url.pathname === '/api/line-oa/threads' && request.method === 'GET') {
         const auth = authorizeAdminFromQuery(url);
