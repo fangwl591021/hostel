@@ -10,6 +10,7 @@ const ADMIN_UIDS = new Set([
 ]);
 const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
+const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TEST_TRIGGER = '888';
 const POINTS_SURVEY_ENABLED = false;
@@ -463,6 +464,11 @@ async function startPointsSurvey(env, event = {}) {
   return {
     replyToken: event.replyToken,
     messages: [
+      {
+        type: 'image',
+        originalContentUrl: POINTS_SURVEY_OPENING_IMAGE_URL,
+        previewImageUrl: POINTS_SURVEY_OPENING_IMAGE_URL,
+      },
       {
         type: 'text',
         text: [
