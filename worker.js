@@ -13,7 +13,7 @@ const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
 const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TEST_TRIGGER = '888';
-const POINTS_SURVEY_ENABLED = false;
+const POINTS_SURVEY_ENABLED = true;
 
 const POINTS_SURVEY_STEPS = [
   {
