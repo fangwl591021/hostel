@@ -542,6 +542,12 @@ function isPointsSurveyTrigger(event = {}) {
   return POINTS_SURVEY_TRIGGER_ALIASES.some(keyword => answer.includes(keyword) || data.includes(keyword));
 }
 
+function isPointsSurveyTestTrigger(event = {}) {
+  const answer = getSurveyAnswerText(event);
+  const data = String(event.postback?.data || '').trim();
+  return answer === POINTS_SURVEY_TEST_TRIGGER || data.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`);
+}
+
 function buildQuickReply(options = []) {
   return {
     items: options.slice(0, 13).map(label => ({
@@ -795,6 +801,21 @@ async function startPointsSurvey(env, event = {}) {
   const userId = String(source.userId || '').trim();
   if (!env.DB || !userId || !event.replyToken) return null;
   const threadId = getLineThreadId(source);
+  const existing = await getSurveyProfile(env, userId);
+  if (existing && Number(existing.completed || 0) && !isPointsSurveyTestTrigger(event)) {
+    await saveSurveyEvent(env, event, 'repeat_trigger_ignored', getSurveyAnswerText(event));
+    await appendThreadSurveyTags(env, threadId, ['問卷:已完成']);
+    return null;
+  }
+  if (existing && !Number(existing.completed || 0) && !isPointsSurveyTestTrigger(event)) {
+    await saveSurveyEvent(env, event, 'repeat_trigger_in_progress', getSurveyAnswerText(event));
+    await appendThreadSurveyTags(env, threadId, ['問卷:進行中']);
+    const stepIndex = Math.max(0, POINTS_SURVEY_STEPS.findIndex(step => step.key === existing.current_step));
+    return {
+      replyToken: event.replyToken,
+      messages: [surveyQuestionMessage(stepIndex, '你剛剛已經開始問卷了，從這題繼續：\n')],
+    };
+  }
   const profile = await fetchLineSourceProfile(env, source);
   const displayName = profile?.displayName || getLineDisplayName(source);
   const pictureUrl = profile?.pictureUrl || '';
