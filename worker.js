@@ -8,6 +8,7 @@ const ADMIN_UIDS = new Set([
   'Uf729764dbb5b652a5a90a467320bea29',
   'U58eb5c1a747450140ce1335af709ae55',
 ]);
+const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
 
 const LINE_NEGATIVE_KEYWORDS = ['退款', '退費', '取消', '生氣', '客訴', '抱怨', '不滿', '失望', '負評', '投訴'];
 const LINE_URGENT_KEYWORDS = ['立即', '現在', '趕快', '今天', '急件', '盡快', '馬上', '立刻', '緊急'];
@@ -17,6 +18,57 @@ const json = (data, status = 200) =>
     status,
     headers: { 'Content-Type': 'application/json; charset=UTF-8', ...CORS },
   });
+
+function decodeBase64Utf8(value) {
+  const binary = atob(String(value || '').replace(/\s/g, ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function injectMonitorRiskPanel(html) {
+  if (html.includes('risk-list')) return html;
+  const script = `
+<script>
+(() => {
+  const ADMIN_UID = 'Uf729764dbb5b652a5a90a467320bea29';
+  const esc = value => String(value || '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[ch]));
+  const formatTime = value => {
+    const d = new Date(value || '');
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  };
+  const riskClass = value => value === 'high' ? 'bg-rose-100 text-rose-700' : value === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
+  function ensurePanel() {
+    if (document.getElementById('risk-list')) return true;
+    const tags = document.getElementById('tags');
+    const anchor = tags?.parentElement;
+    if (!anchor) return false;
+    anchor.insertAdjacentHTML('afterend', '<div class="mt-4"><div class="flex items-center justify-between mb-2"><p class="text-sm text-slate-500 font-semibold">風險名單</p><button id="show-risk-filter" type="button" class="rounded-full bg-rose-50 text-rose-700 px-3 py-1 text-xs font-bold">看全部</button></div><div id="risk-list" class="space-y-2"></div></div>');
+    document.getElementById('show-risk-filter')?.addEventListener('click', () => document.querySelector('[data-filter="risk"]')?.click());
+    return true;
+  }
+  async function renderRiskList() {
+    if (!ensurePanel()) return;
+    const list = document.getElementById('risk-list');
+    const res = await fetch('/api/line-oa/audience?uid=' + encodeURIComponent(ADMIN_UID));
+    const json = await res.json();
+    const rows = json?.data?.riskThreads || [];
+    list.innerHTML = rows.length ? rows.map(row => '<button type="button" data-id="' + esc(row.id) + '" class="risk-row w-full text-left rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 hover:bg-rose-100"><div class="flex items-start justify-between gap-2"><div class="min-w-0"><b class="block truncate text-sm text-slate-900">' + esc(row.name || '訪客') + '</b><span class="block truncate text-[11px] text-slate-400">' + esc(row.userId || '') + '</span></div><span class="shrink-0 rounded-full ' + riskClass(row.risk) + ' px-2 py-1 text-[11px] font-bold">' + (row.risk === 'high' ? '高' : '中') + '</span></div><p class="mt-1 line-clamp-2 text-xs text-slate-600">' + esc(row.summary || '') + '</p><div class="mt-1 flex items-center justify-between text-[11px] text-slate-400"><span>' + formatTime(row.lastMessageAt) + '</span><span>' + (Number(row.unread || 0) ? Number(row.unread || 0) + ' 未讀' : '') + '</span></div></button>').join('') : '<p class="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-400">目前沒有高風險或中風險名單</p>';
+    document.querySelectorAll('.risk-row').forEach(btn => btn.addEventListener('click', () => {
+      if (typeof loadThread === 'function') loadThread(btn.dataset.id).catch(err => console.warn(err));
+    }));
+  }
+  setTimeout(() => renderRiskList().catch(err => console.warn(err)), 800);
+})();
+</script>`;
+  return html.replace('</body>', `${script}\n</body>`);
+}
 
 function bytesToBase64(bytes) {
   let binary = '';
@@ -1069,15 +1121,29 @@ function renderHubHtml(status, origin) {
 }
 
 async function serveGithubHtml(filename) {
-  const res = await fetch(`https://raw.githubusercontent.com/fangwl591021/hostel/main/${filename}?v=${Date.now()}`, {
+  const res = await fetch(`https://raw.githubusercontent.com/fangwl591021/hostel/${GITHUB_HTML_REF}/${filename}?v=${Date.now()}`, {
     cf: { cacheTtl: 0, cacheEverything: false },
   });
   if (!res.ok) return json({ success: false, error: `HTML_PAGE_FETCH_FAILED_${res.status}` }, 502);
-  const html = await res.text();
+  let html = await res.text();
+  if (filename === 'line-oa-monitor.html' && !html.includes('risk-list')) {
+    const apiRes = await fetch(`https://api.github.com/repos/fangwl591021/hostel/contents/${encodeURIComponent(filename)}?ref=${GITHUB_HTML_REF}`, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'hostel-worker',
+      },
+      cf: { cacheTtl: 0, cacheEverything: false },
+    });
+    if (!apiRes.ok) return json({ success: false, error: `HTML_PAGE_API_FETCH_FAILED_${apiRes.status}` }, 502);
+    const payload = await apiRes.json();
+    html = decodeBase64Utf8(payload.content || '');
+  }
+  if (filename === 'line-oa-monitor.html') html = injectMonitorRiskPanel(html);
   return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=UTF-8',
       'Cache-Control': 'no-store',
+      'X-Hostel-Version': GITHUB_HTML_REF,
       ...CORS,
     },
   });
