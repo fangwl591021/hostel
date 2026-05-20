@@ -9,6 +9,36 @@ const ADMIN_UIDS = new Set([
   'U58eb5c1a747450140ce1335af709ae55',
 ]);
 const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
+const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
+const POINTS_SURVEY_TRIGGER = '水映南瀛點數專區';
+
+const POINTS_SURVEY_STEPS = [
+  {
+    key: 'area',
+    title: '先幫我選一個你比較想找住宿的區域：',
+    options: ['台南市區/安平', '北門/將軍/七股', '新化/玉井/楠西', '白河/東山/關子嶺', '還不確定'],
+  },
+  {
+    key: 'travel_time',
+    title: '你大概什麼時候會安排台南旅遊或住宿？',
+    options: ['本週', '2 週內', '1 個月內', '連假/暑假', '還不確定'],
+  },
+  {
+    key: 'party_type',
+    title: '這次比較像哪一種同行型態？',
+    options: ['情侶/夫妻', '親子家庭', '朋友同行', '獨旅', '團體/公司'],
+  },
+  {
+    key: 'lodging_type',
+    title: '你偏好哪一類住宿或活動資訊？',
+    options: ['民宿', '飯店', '親子住宿', '包棟', '先看優惠'],
+  },
+  {
+    key: 'budget',
+    title: '一晚住宿預算大概落在哪裡？',
+    options: ['2000 內', '2000-4000', '4000-6000', '6000 以上', '看活動優惠'],
+  },
+];
 
 const LINE_NEGATIVE_KEYWORDS = ['退款', '退費', '取消', '生氣', '客訴', '抱怨', '不滿', '失望', '負評', '投訴'];
 const LINE_URGENT_KEYWORDS = ['立即', '現在', '趕快', '今天', '急件', '盡快', '馬上', '立刻', '緊急'];
@@ -277,6 +307,299 @@ function getLineMessageText(event = {}, messageType = '') {
   return `[${messageType}]`;
 }
 
+function mergeTagValues(existing = '', additions = []) {
+  const values = [
+    ...String(existing || '').split(','),
+    ...additions,
+  ].map(v => String(v || '').trim()).filter(Boolean);
+  return [...new Set(values)].join(',');
+}
+
+function getSurveyAnswerText(event = {}) {
+  const type = String(event.message?.type || event.type || '').trim();
+  if (type === 'text') return String(event.message?.text || '').trim();
+  if (type === 'postback') {
+    const data = String(event.postback?.data || '').trim();
+    const params = new URLSearchParams(data);
+    return [
+      params.get('answer'),
+      params.get('keyword'),
+      params.get('label'),
+      params.get('title'),
+      data,
+    ].map(v => String(v || '').trim()).find(Boolean) || '';
+  }
+  return '';
+}
+
+function isPointsSurveyTrigger(event = {}) {
+  const answer = getSurveyAnswerText(event);
+  const data = String(event.postback?.data || '').trim();
+  return answer.includes(POINTS_SURVEY_TRIGGER) || data.includes(POINTS_SURVEY_TRIGGER);
+}
+
+function buildQuickReply(options = []) {
+  return {
+    items: options.slice(0, 13).map(label => ({
+      type: 'action',
+      action: { type: 'message', label, text: label },
+    })),
+  };
+}
+
+function surveyQuestionMessage(stepIndex, prefix = '') {
+  const step = POINTS_SURVEY_STEPS[stepIndex] || POINTS_SURVEY_STEPS[0];
+  return {
+    type: 'text',
+    text: `${prefix}${step.title}`,
+    quickReply: buildQuickReply(step.options),
+  };
+}
+
+function surveyCompleteMessage(profile = {}) {
+  const lines = [
+    '已幫你登記點數候補與旅宿偏好。',
+    '',
+    `住宿區域：${profile.area || '未填'}`,
+    `旅遊時間：${profile.travel_time || '未填'}`,
+    `同行型態：${profile.party_type || '未填'}`,
+    `住宿偏好：${profile.lodging_type || '未填'}`,
+    `預算：${profile.budget || '未填'}`,
+    '',
+    '點數每週三補發 5 萬點；在補發前，我們會優先用這些資料通知你比較適合的活動與住宿資訊。',
+    `活動住宿頁：${POINTS_ACTIVITY_URL}`,
+  ];
+  return { type: 'text', text: lines.join('\n') };
+}
+
+async function getSurveyProfile(env, userId) {
+  if (!env.DB || !userId) return null;
+  return env.DB.prepare(`
+    SELECT *
+    FROM line_survey_profiles
+    WHERE line_user_id = ?
+  `).bind(userId).first();
+}
+
+async function saveSurveyEvent(env, event = {}, step = '', answer = '') {
+  if (!env.DB) return;
+  const source = event.source || {};
+  const userId = String(source.userId || '').trim();
+  if (!userId) return;
+  await env.DB.prepare(`
+    INSERT INTO line_survey_events (id, line_user_id, thread_id, step, answer, raw_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    crypto.randomUUID(),
+    userId,
+    getLineThreadId(source),
+    step,
+    answer,
+    JSON.stringify(event),
+    eventCreatedAt(event)
+  ).run();
+}
+
+async function startPointsSurvey(env, event = {}) {
+  const source = event.source || {};
+  const userId = String(source.userId || '').trim();
+  if (!env.DB || !userId || !event.replyToken) return null;
+  const threadId = getLineThreadId(source);
+  const profile = await fetchLineSourceProfile(env, source);
+  const displayName = profile?.displayName || getLineDisplayName(source);
+  const pictureUrl = profile?.pictureUrl || '';
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO line_survey_profiles (
+      line_user_id, thread_id, display_name, picture_url, trigger_keyword,
+      current_step, completed, source_url, answers_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'area', 0, ?, '{}', ?, ?)
+    ON CONFLICT(line_user_id) DO UPDATE SET
+      thread_id = excluded.thread_id,
+      display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE line_survey_profiles.display_name END,
+      picture_url = CASE WHEN excluded.picture_url <> '' THEN excluded.picture_url ELSE line_survey_profiles.picture_url END,
+      trigger_keyword = excluded.trigger_keyword,
+      current_step = CASE WHEN line_survey_profiles.completed = 1 THEN 'area' ELSE line_survey_profiles.current_step END,
+      completed = CASE WHEN line_survey_profiles.completed = 1 THEN 0 ELSE line_survey_profiles.completed END,
+      opt_in = CASE WHEN line_survey_profiles.completed = 1 THEN 0 ELSE line_survey_profiles.opt_in END,
+      source_url = excluded.source_url,
+      updated_at = excluded.updated_at
+  `).bind(
+    userId,
+    threadId,
+    displayName,
+    pictureUrl,
+    POINTS_SURVEY_TRIGGER,
+    POINTS_ACTIVITY_URL,
+    now,
+    now
+  ).run();
+  await saveSurveyEvent(env, event, 'trigger', getSurveyAnswerText(event));
+  await appendThreadSurveyTags(env, threadId, ['問卷:點數候補', '問卷:進行中']);
+  return {
+    replyToken: event.replyToken,
+    messages: [
+      {
+        type: 'text',
+        text: [
+          '水映南瀛點數目前已領取完畢，每週三會再補發 5 萬點。',
+          '先回答 5 題，我幫你登記候補與旅宿偏好；之後會優先通知你比較適合的住宿與活動資訊。',
+        ].join('\n'),
+      },
+      surveyQuestionMessage(0),
+    ],
+  };
+}
+
+async function appendThreadSurveyTags(env, threadId, additions = [], patch = {}) {
+  if (!env.DB || !threadId) return;
+  const row = await env.DB.prepare(`SELECT tags FROM line_threads WHERE id = ?`).bind(threadId).first();
+  const tags = mergeTagValues(row?.tags || '', additions);
+  const sets = ['tags = ?', "updated_at = datetime('now')"];
+  const values = [tags];
+  if (patch.inferred_area) {
+    sets.push("inferred_area = CASE WHEN inferred_area = ? OR inferred_area = '' THEN ? ELSE inferred_area END");
+    values.push('', patch.inferred_area);
+  }
+  await env.DB.prepare(`UPDATE line_threads SET ${sets.join(', ')} WHERE id = ?`).bind(...values, threadId).run();
+}
+
+async function continuePointsSurvey(env, event = {}, profile = null) {
+  const source = event.source || {};
+  const userId = String(source.userId || '').trim();
+  if (!env.DB || !userId || !event.replyToken) return null;
+  const current = profile || await getSurveyProfile(env, userId);
+  if (!current || current.completed) return null;
+  const stepIndex = Math.max(0, POINTS_SURVEY_STEPS.findIndex(step => step.key === current.current_step));
+  const step = POINTS_SURVEY_STEPS[stepIndex] || POINTS_SURVEY_STEPS[0];
+  const answer = getSurveyAnswerText(event);
+  if (!answer || isPointsSurveyTrigger(event)) return null;
+
+  let answers = {};
+  try { answers = JSON.parse(current.answers_json || '{}'); } catch (_err) {}
+  answers[step.key] = answer;
+  const nextStep = POINTS_SURVEY_STEPS[stepIndex + 1] || null;
+  const completed = nextStep ? 0 : 1;
+  const updates = {
+    area: current.area || '',
+    travel_time: current.travel_time || '',
+    party_type: current.party_type || '',
+    lodging_type: current.lodging_type || '',
+    budget: current.budget || '',
+  };
+  updates[step.key] = answer;
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    UPDATE line_survey_profiles
+    SET current_step = ?,
+        completed = ?,
+        area = ?,
+        travel_time = ?,
+        party_type = ?,
+        lodging_type = ?,
+        budget = ?,
+        opt_in = ?,
+        last_answer = ?,
+        answers_json = ?,
+        updated_at = ?
+    WHERE line_user_id = ?
+  `).bind(
+    nextStep ? nextStep.key : 'completed',
+    completed,
+    updates.area,
+    updates.travel_time,
+    updates.party_type,
+    updates.lodging_type,
+    updates.budget,
+    completed ? 1 : Number(current.opt_in || 0),
+    answer,
+    JSON.stringify(answers),
+    now,
+    userId
+  ).run();
+  await saveSurveyEvent(env, event, step.key, answer);
+
+  const threadId = getLineThreadId(source);
+  const tagAdds = [
+    '問卷:點數候補',
+    `問卷:${step.key}:${answer}`,
+    completed ? '問卷:完成' : '問卷:進行中',
+  ];
+  if (completed) tagAdds.push('分眾:可推播');
+  await appendThreadSurveyTags(env, threadId, tagAdds, step.key === 'area' ? { inferred_area: answer } : {});
+
+  if (nextStep) {
+    return {
+      replyToken: event.replyToken,
+      messages: [surveyQuestionMessage(stepIndex + 1, '收到。\n')],
+    };
+  }
+
+  return {
+    replyToken: event.replyToken,
+    messages: [surveyCompleteMessage(updates)],
+  };
+}
+
+async function handlePointsSurveyAutomation(env, payload = {}) {
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  for (const event of events) {
+    const source = event.source || {};
+    const userId = String(source.userId || '').trim();
+    if (!userId || !event.replyToken) continue;
+    if (isPointsSurveyTrigger(event)) {
+      const replyPayload = await startPointsSurvey(env, event);
+      if (replyPayload) await replyLineMessage(env, replyPayload);
+      continue;
+    }
+    const profile = await getSurveyProfile(env, userId);
+    if (profile && !Number(profile.completed || 0)) {
+      const replyPayload = await continuePointsSurvey(env, event, profile);
+      if (replyPayload) await replyLineMessage(env, replyPayload);
+    }
+  }
+}
+
+async function getSurveySummary(env) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const overview = await env.DB.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN completed = 1 AND opt_in = 1 THEN 1 ELSE 0 END) AS opt_in
+    FROM line_survey_profiles
+  `).first();
+  const groupBy = async column => {
+    const safeColumns = new Set(['area', 'travel_time', 'party_type', 'lodging_type', 'budget']);
+    if (!safeColumns.has(column)) return [];
+    const { results } = await env.DB.prepare(`
+      SELECT ${column} AS label, COUNT(*) AS count
+      FROM line_survey_profiles
+      WHERE ${column} <> ''
+      GROUP BY ${column}
+      ORDER BY count DESC, label ASC
+      LIMIT 20
+    `).all();
+    return (results || []).map(row => ({ label: row.label, count: Number(row.count || 0) }));
+  };
+  return {
+    success: true,
+    data: {
+      generatedAt: new Date().toISOString(),
+      overview: {
+        total: Number(overview?.total || 0),
+        completed: Number(overview?.completed || 0),
+        optIn: Number(overview?.opt_in || 0),
+      },
+      area: await groupBy('area'),
+      travelTime: await groupBy('travel_time'),
+      partyType: await groupBy('party_type'),
+      lodgingType: await groupBy('lodging_type'),
+      budget: await groupBy('budget'),
+    },
+  };
+}
+
 function formatPostbackText(event = {}, fallback = '') {
   const data = String(event.postback?.data || '').trim();
   const params = new URLSearchParams(data);
@@ -467,6 +790,9 @@ async function handleLineWebhook(request, env, ctx) {
   ctx.waitUntil((async () => {
     try { await storeLineEvents(env, payload); } catch (err) {
       console.warn('storeLineEvents failed:', err.message);
+    }
+    try { await handlePointsSurveyAutomation(env, payload); } catch (err) {
+      console.warn('points survey failed:', err.message);
     }
     try { await forwardWebhookToObserver(env, rawBody, signature); } catch (err) {
       console.warn('observer forward failed:', err.message);
@@ -768,14 +1094,24 @@ function normalizeLineMessages(input) {
 function buildBroadcastRecipientQuery(filters = {}) {
   const clauses = ["source_user_id <> ''"];
   const values = [];
+  const joins = [];
   const status = String(filters.status || '').trim();
   const risk = String(filters.risk || '').trim();
   const gender = String(filters.gender || '').trim();
   const area = String(filters.area || '').trim();
   const tag = String(filters.tag || '').trim();
   const keyword = String(filters.keyword || '').trim();
+  const surveyArea = String(filters.surveyArea || filters.survey_area || '').trim();
+  const surveyTravelTime = String(filters.surveyTravelTime || filters.survey_travel_time || '').trim();
+  const surveyPartyType = String(filters.surveyPartyType || filters.survey_party_type || '').trim();
+  const surveyLodgingType = String(filters.surveyLodgingType || filters.survey_lodging_type || '').trim();
+  const surveyBudget = String(filters.surveyBudget || filters.survey_budget || '').trim();
+  const surveyCompleted = filters.surveyCompleted ?? filters.survey_completed ?? '';
   const activeDays = Number(filters.activeDays || filters.active_days || 0);
   const limit = Math.max(0, Math.min(Number(filters.limit || 0) || 0, 50000));
+  const needsSurveyJoin = surveyArea || surveyTravelTime || surveyPartyType || surveyLodgingType || surveyBudget || surveyCompleted !== '';
+
+  if (needsSurveyJoin) joins.push('LEFT JOIN line_survey_profiles sp ON sp.line_user_id = line_threads.source_user_id');
 
   if (status && status !== 'all') {
     clauses.push('status = ?');
@@ -805,14 +1141,39 @@ function buildBroadcastRecipientQuery(filters = {}) {
     clauses.push("last_message_at >= ?");
     values.push(new Date(Date.now() - activeDays * 24 * 60 * 60 * 1000).toISOString());
   }
+  if (surveyCompleted !== '') {
+    clauses.push('sp.completed = ?');
+    values.push(Number(surveyCompleted) ? 1 : 0);
+  }
+  if (surveyArea) {
+    clauses.push('sp.area = ?');
+    values.push(surveyArea);
+  }
+  if (surveyTravelTime) {
+    clauses.push('sp.travel_time = ?');
+    values.push(surveyTravelTime);
+  }
+  if (surveyPartyType) {
+    clauses.push('sp.party_type = ?');
+    values.push(surveyPartyType);
+  }
+  if (surveyLodgingType) {
+    clauses.push('sp.lodging_type = ?');
+    values.push(surveyLodgingType);
+  }
+  if (surveyBudget) {
+    clauses.push('sp.budget = ?');
+    values.push(surveyBudget);
+  }
 
   return {
     sql: `
-      SELECT source_user_id, display_name
+      SELECT line_threads.source_user_id, line_threads.display_name
       FROM line_threads
+      ${joins.join('\n')}
       WHERE ${clauses.join(' AND ')}
-      GROUP BY source_user_id
-      ORDER BY MAX(COALESCE(last_message_at, created_at)) DESC
+      GROUP BY line_threads.source_user_id
+      ORDER BY MAX(COALESCE(line_threads.last_message_at, line_threads.created_at)) DESC
       ${limit > 0 ? `LIMIT ${limit}` : ''}
     `,
     values,
@@ -1192,6 +1553,11 @@ export default {
         const auth = authorizeAdminFromQuery(url);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await getAudience(env));
+      }
+      if (url.pathname === '/api/survey/summary' && request.method === 'GET') {
+        const auth = authorizeAdminFromQuery(url);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await getSurveySummary(env));
       }
       if (url.pathname === '/api/line-oa/backfill-signals' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
