@@ -107,6 +107,7 @@
             <option value="active30">近 30 天互動</option>
             <option value="area">指定地區</option>
             <option value="gender">性別線索</option>
+            <option value="survey">問卷分眾</option>
             <option value="risk">風險名單</option>
             <option value="tag">標籤名單</option>
             <option value="keyword">關鍵字搜尋</option>
@@ -119,6 +120,21 @@
               <option value="女性線索">女性線索</option>
               <option value="男性線索">男性線索</option>
               <option value="未判定">未判定</option>
+            </select>
+            <select id="broadcast-survey-gender" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500">
+              <option value="">問卷性別不限</option>
+              <option value="女性">女性</option>
+              <option value="男性">男性</option>
+              <option value="其他/不便透露">其他/不便透露</option>
+            </select>
+            <select id="broadcast-survey-residence-area" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500">
+              <option value="">問卷居住地區不限</option>
+              <option value="臺南市">臺南市</option>
+              <option value="高雄/屏東">高雄/屏東</option>
+              <option value="嘉義/雲林">嘉義/雲林</option>
+              <option value="中彰投">中彰投</option>
+              <option value="北北基桃">北北基桃</option>
+              <option value="其他地區">其他地區</option>
             </select>
             <select id="broadcast-risk" class="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500">
               <option value="all">風險不限</option>
@@ -413,6 +429,8 @@
         status: el('broadcast-status').value,
         risk: el('broadcast-risk').value,
         gender: el('broadcast-gender').value,
+        surveyGender: el('broadcast-survey-gender').value,
+        surveyResidenceArea: el('broadcast-survey-residence-area').value,
         area: el('broadcast-area').value.trim(),
         tag: el('broadcast-tag').value.trim(),
         keyword: el('broadcast-keyword').value.trim(),
@@ -421,6 +439,7 @@
       if (mode === 'active30') filters.activeDays = 30;
       if (mode === 'area' && !filters.area) throw new Error('請輸入地區');
       if (mode === 'gender' && filters.gender === 'all') throw new Error('請選擇性別線索');
+      if (mode === 'survey' && !filters.surveyGender && !filters.surveyResidenceArea) throw new Error('請選擇問卷性別或問卷居住地區');
       if (mode === 'risk' && filters.risk === 'all') filters.risk = 'high';
       if (mode === 'tag' && !filters.tag) throw new Error('請輸入標籤');
       if (mode === 'keyword' && !filters.keyword) throw new Error('請輸入關鍵字');
@@ -428,6 +447,8 @@
         filters.status = 'all';
         filters.risk = 'all';
         filters.gender = 'all';
+        filters.surveyGender = '';
+        filters.surveyResidenceArea = '';
         filters.area = '';
         filters.tag = '';
         filters.keyword = '';

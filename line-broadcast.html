@@ -35,6 +35,7 @@
             <button data-mode="active30" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">近 30 天互動</button>
             <button data-mode="area" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">指定地區</button>
             <button data-mode="gender" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">性別線索</button>
+            <button data-mode="survey" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">問卷分眾</button>
             <button data-mode="risk" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">高風險名單</button>
             <button data-mode="tag" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">標籤名單</button>
             <button data-mode="keyword" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">關鍵字搜尋</button>
@@ -98,6 +99,25 @@
                 <option value="未判定">未判定</option>
               </select>
             </label>
+            <label class="block text-sm font-bold text-slate-600">問卷性別
+              <select id="filter-survey-gender" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+                <option value="">不限</option>
+                <option value="女性">女性</option>
+                <option value="男性">男性</option>
+                <option value="其他/不便透露">其他/不便透露</option>
+              </select>
+            </label>
+            <label class="block text-sm font-bold text-slate-600">問卷居住地區
+              <select id="filter-survey-residence-area" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+                <option value="">不限</option>
+                <option value="臺南市">臺南市</option>
+                <option value="高雄/屏東">高雄/屏東</option>
+                <option value="嘉義/雲林">嘉義/雲林</option>
+                <option value="中彰投">中彰投</option>
+                <option value="北北基桃">北北基桃</option>
+                <option value="其他地區">其他地區</option>
+              </select>
+            </label>
             <label class="block text-sm font-bold text-slate-600">地區
               <input id="filter-area" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="台南、安平、永康">
             </label>
@@ -157,6 +177,7 @@
       active30: '近 30 天互動',
       area: '指定地區',
       gender: '性別線索',
+      survey: '問卷分眾',
       risk: '高風險名單',
       tag: '標籤名單',
       keyword: '關鍵字搜尋',
@@ -211,6 +232,8 @@
         status: el('filter-status').value,
         risk: el('filter-risk').value,
         gender: el('filter-gender').value,
+        surveyGender: el('filter-survey-gender').value,
+        surveyResidenceArea: el('filter-survey-residence-area').value,
         area: el('filter-area').value.trim(),
         tag: el('filter-tag').value.trim(),
         keyword: el('filter-keyword').value.trim(),
@@ -221,6 +244,8 @@
         filters.status = 'all';
         filters.risk = 'all';
         filters.gender = 'all';
+        filters.surveyGender = '';
+        filters.surveyResidenceArea = '';
         filters.area = '';
         filters.tag = '';
         filters.keyword = '';
@@ -230,6 +255,7 @@
       if (mode === 'active30') filters.activeDays = 30;
       if (mode === 'area' && !filters.area) throw new Error('請輸入地區');
       if (mode === 'gender' && filters.gender === 'all') throw new Error('請選擇性別線索');
+      if (mode === 'survey' && !filters.surveyGender && !filters.surveyResidenceArea) throw new Error('請選擇問卷性別或問卷居住地區');
       if (mode === 'tag' && !filters.tag) throw new Error('請輸入標籤');
       if (mode === 'keyword' && !filters.keyword) throw new Error('請輸入關鍵字');
       if (mode === 'risk' && filters.risk === 'all') filters.risk = 'high';

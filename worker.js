@@ -8,7 +8,7 @@ const ADMIN_UIDS = new Set([
   'Uf729764dbb5b652a5a90a467320bea29',
   'U58eb5c1a747450140ce1335af709ae55',
 ]);
-const GITHUB_HTML_REF = 'a2e146ba2864709dbe0a88f405266ea849d6cb11';
+const GITHUB_HTML_REF = 'main';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
 const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
@@ -26,6 +26,11 @@ const POINTS_SURVEY_STEPS = [
     key: 'residence_area',
     title: '你目前主要居住在哪個地區？',
     options: ['臺南市', '高雄/屏東', '嘉義/雲林', '中彰投', '北北基桃', '其他地區'],
+  },
+  {
+    key: 'gender',
+    title: '為了後續提供更適合的旅遊資訊，請問你希望如何標記性別分眾？',
+    options: ['女性', '男性', '其他/不便透露'],
   },
   {
     key: 'tainan_area',
@@ -621,6 +626,7 @@ function surveyCompleteMessage(profile = {}) {
     '',
     `想了解：${answers.interest || '未填'}`,
     `居住地區：${answers.residence_area || '未填'}`,
+    `性別分眾：${answers.gender || profile.gender || '未填'}`,
     `臺南區域：${answers.tainan_area || profile.area || '未填'}`,
     `同行型態：${answers.party_type || profile.party_type || '未填'}`,
     `住宿偏好：${answers.lodging_type || profile.lodging_type || '未填'}`,
@@ -832,7 +838,9 @@ async function startPointsSurvey(env, event = {}) {
       trigger_keyword = excluded.trigger_keyword,
       current_step = 'interest',
       completed = 0,
+      residence_area = '',
       area = '',
+      gender = '',
       travel_time = '',
       party_type = '',
       lodging_type = '',
@@ -890,13 +898,17 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   const nextStep = POINTS_SURVEY_STEPS[stepIndex + 1] || null;
   const completed = nextStep ? 0 : 1;
   const updates = {
+    residence_area: current.residence_area || '',
     area: current.area || '',
+    gender: current.gender || '',
     travel_time: current.travel_time || '',
     party_type: current.party_type || '',
     lodging_type: current.lodging_type || '',
     budget: current.budget || '',
   };
+  if (step.key === 'residence_area') updates.residence_area = answer;
   if (step.key === 'tainan_area') updates.area = answer;
+  if (step.key === 'gender') updates.gender = answer;
   if (step.key === 'visit_time') updates.travel_time = answer;
   if (step.key === 'party_type') updates.party_type = answer;
   if (step.key === 'lodging_type') updates.lodging_type = answer;
@@ -906,7 +918,9 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
     UPDATE line_survey_profiles
     SET current_step = ?,
         completed = ?,
+        residence_area = ?,
         area = ?,
+        gender = ?,
         travel_time = ?,
         party_type = ?,
         lodging_type = ?,
@@ -919,7 +933,9 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   `).bind(
     nextStep ? nextStep.key : 'completed',
     completed,
+    updates.residence_area,
     updates.area,
+    updates.gender,
     updates.travel_time,
     updates.party_type,
     updates.lodging_type,
@@ -939,7 +955,8 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
     completed ? '問卷:完成' : '問卷:進行中',
   ];
   if (completed) tagAdds.push('分眾:可推播');
-  await appendThreadSurveyTags(env, threadId, tagAdds, step.key === 'tainan_area' ? { inferred_area: answer } : {});
+  if (step.key === 'gender') tagAdds.push(`問卷性別:${answer}`);
+  await appendThreadSurveyTags(env, threadId, tagAdds, step.key === 'residence_area' ? { inferred_area: answer } : {});
 
   if (nextStep) {
     return {
@@ -986,7 +1003,7 @@ async function getSurveySummary(env) {
     FROM line_survey_profiles
   `).first();
   const groupBy = async column => {
-    const safeColumns = new Set(['area', 'travel_time', 'party_type', 'lodging_type', 'budget']);
+    const safeColumns = new Set(['residence_area', 'area', 'gender', 'travel_time', 'party_type', 'lodging_type', 'budget']);
     if (!safeColumns.has(column)) return [];
     const { results } = await env.DB.prepare(`
       SELECT ${column} AS label, COUNT(*) AS count
@@ -1007,7 +1024,9 @@ async function getSurveySummary(env) {
         completed: Number(overview?.completed || 0),
         optIn: Number(overview?.opt_in || 0),
       },
+      residenceArea: await groupBy('residence_area'),
       area: await groupBy('area'),
+      gender: await groupBy('gender'),
       travelTime: await groupBy('travel_time'),
       partyType: await groupBy('party_type'),
       lodgingType: await groupBy('lodging_type'),
@@ -1517,7 +1536,9 @@ function buildBroadcastRecipientQuery(filters = {}) {
   const area = String(filters.area || '').trim();
   const tag = String(filters.tag || '').trim();
   const keyword = String(filters.keyword || '').trim();
+  const surveyResidenceArea = String(filters.surveyResidenceArea || filters.survey_residence_area || '').trim();
   const surveyArea = String(filters.surveyArea || filters.survey_area || '').trim();
+  const surveyGender = String(filters.surveyGender || filters.survey_gender || '').trim();
   const surveyTravelTime = String(filters.surveyTravelTime || filters.survey_travel_time || '').trim();
   const surveyPartyType = String(filters.surveyPartyType || filters.survey_party_type || '').trim();
   const surveyLodgingType = String(filters.surveyLodgingType || filters.survey_lodging_type || '').trim();
@@ -1525,7 +1546,7 @@ function buildBroadcastRecipientQuery(filters = {}) {
   const surveyCompleted = filters.surveyCompleted ?? filters.survey_completed ?? '';
   const activeDays = Number(filters.activeDays || filters.active_days || 0);
   const limit = Math.max(0, Math.min(Number(filters.limit || 0) || 0, 50000));
-  const needsSurveyJoin = surveyArea || surveyTravelTime || surveyPartyType || surveyLodgingType || surveyBudget || surveyCompleted !== '';
+  const needsSurveyJoin = surveyResidenceArea || surveyArea || surveyGender || surveyTravelTime || surveyPartyType || surveyLodgingType || surveyBudget || surveyCompleted !== '';
 
   if (needsSurveyJoin) joins.push('LEFT JOIN line_survey_profiles sp ON sp.line_user_id = line_threads.source_user_id');
 
@@ -1561,9 +1582,17 @@ function buildBroadcastRecipientQuery(filters = {}) {
     clauses.push('sp.completed = ?');
     values.push(Number(surveyCompleted) ? 1 : 0);
   }
+  if (surveyResidenceArea) {
+    clauses.push('sp.residence_area = ?');
+    values.push(surveyResidenceArea);
+  }
   if (surveyArea) {
     clauses.push('sp.area = ?');
     values.push(surveyArea);
+  }
+  if (surveyGender) {
+    clauses.push('sp.gender = ?');
+    values.push(surveyGender);
   }
   if (surveyTravelTime) {
     clauses.push('sp.travel_time = ?');
