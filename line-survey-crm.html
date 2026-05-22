@@ -27,8 +27,8 @@
   <main class="max-w-7xl mx-auto px-6 py-6 space-y-5">
     <section class="bg-white border border-slate-200 rounded-2xl p-5">
       <div class="grid grid-cols-6 gap-3 items-end">
-        <label class="block text-sm font-bold text-slate-600 col-span-2">管理員 UID
-          <input id="uid" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="Ue7a07...">
+        <label class="block text-sm font-bold text-slate-600 col-span-2">管理員密碼
+          <input id="password" type="password" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="輸入管理員密碼">
         </label>
         <label class="block text-sm font-bold text-slate-600">性別
           <select id="gender" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
@@ -63,6 +63,7 @@
           <input id="search" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="姓名、UID、標籤、答案">
         </label>
         <div class="col-span-4 flex flex-wrap gap-2">
+          <button id="login" type="button" class="rounded-xl bg-emerald-500 text-white px-5 py-3 font-bold">登入</button>
           <button id="load" type="button" class="rounded-xl bg-slate-900 text-white px-5 py-3 font-bold">載入 CRM</button>
           <button id="backfill" type="button" class="rounded-xl bg-emerald-500 text-white px-5 py-3 font-bold">回溯修正居住地區</button>
           <button id="download" type="button" class="rounded-xl border border-slate-300 px-5 py-3 font-bold">下載 CSV</button>
@@ -104,9 +105,7 @@
     const el = id => document.getElementById(id);
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const params = () => {
-      const uid = el('uid').value.trim();
-      if (!uid) throw new Error('請輸入管理員 UID');
-      const p = new URLSearchParams({ uid, limit: el('limit').value || '500' });
+      const p = new URLSearchParams({ limit: el('limit').value || '500' });
       if (el('search').value.trim()) p.set('search', el('search').value.trim());
       if (el('gender').value) p.set('gender', el('gender').value);
       if (el('residence-area').value) p.set('residenceArea', el('residence-area').value);
@@ -114,6 +113,20 @@
       return p;
     };
     function setStatus(text) { el('status').textContent = text || ''; }
+    async function login() {
+      const password = el('password').value.trim();
+      if (!password) throw new Error('請輸入管理員密碼');
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '登入失敗');
+      el('password').value = '';
+      setStatus('已登入');
+      await load();
+    }
     function render(records = []) {
       el('count').textContent = records.length;
       el('female').textContent = records.filter(r => r.gender === '女性').length;
@@ -141,13 +154,12 @@
       render(data.data.records || []);
       setStatus(`已載入 ${data.data.count} 筆`);
     }
+    el('login').addEventListener('click', () => login().catch(err => setStatus(err.message)));
     el('load').addEventListener('click', () => load().catch(err => setStatus(err.message)));
     el('backfill').addEventListener('click', async () => {
       try {
         setStatus('回溯中...');
-        const uid = el('uid').value.trim();
-        if (!uid) throw new Error('請輸入管理員 UID');
-        const res = await fetch(`/api/survey/backfill-residence?uid=${encodeURIComponent(uid)}&limit=5000`);
+        const res = await fetch('/api/survey/backfill-residence?limit=5000');
         const data = await res.json();
         if (!data.success) throw new Error(data.error || '回溯失敗');
         setStatus(`回溯完成：${data.data.updated} 筆`);
@@ -163,6 +175,10 @@
         setStatus(err.message);
       }
     });
+    fetch('/api/admin/session').then(r => r.json()).then(data => {
+      setStatus(data.authenticated ? '已登入' : '請先登入');
+      if (data.authenticated) load().catch(err => setStatus(err.message));
+    }).catch(() => setStatus('請先登入'));
   </script>
 </body>
 </html>

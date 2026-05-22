@@ -19,6 +19,8 @@ const POINTS_SURVEY_ENABLED = false;
 const POINTS_SURVEY_ENABLE_COMMAND = '開始調查';
 const POINTS_SURVEY_DISABLE_COMMAND = '停止調查';
 const POINTS_SURVEY_ENABLED_SETTING_KEY = 'points_survey_enabled';
+const ADMIN_SESSION_COOKIE = 'hostel_admin_session';
+const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 
 const POINTS_SURVEY_STEPS = [
   {
@@ -265,6 +267,89 @@ function decodeBase64Utf8(value) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return new TextDecoder().decode(bytes);
+}
+
+function base64UrlEncode(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function parseCookies(request) {
+  const header = request.headers.get('Cookie') || '';
+  return Object.fromEntries(header.split(';').map(part => {
+    const [name, ...rest] = part.trim().split('=');
+    return [name, rest.join('=')];
+  }).filter(([name]) => name));
+}
+
+async function hmacSha256Base64Url(secret, value) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return base64UrlEncode(new Uint8Array(signature));
+}
+
+async function createAdminSession(env) {
+  const password = String(env.ADMIN_PASSWORD || '').trim();
+  if (!password) throw new Error('ADMIN_PASSWORD missing');
+  const expiresAt = Date.now() + ADMIN_SESSION_MAX_AGE * 1000;
+  const payload = String(expiresAt);
+  const sig = await hmacSha256Base64Url(password, payload);
+  return `${payload}.${sig}`;
+}
+
+async function verifyAdminSession(request, env) {
+  const password = String(env.ADMIN_PASSWORD || '').trim();
+  if (!password) return false;
+  const token = parseCookies(request)[ADMIN_SESSION_COOKIE] || '';
+  const [payload, sig] = token.split('.');
+  const expiresAt = Number(payload || 0);
+  if (!payload || !sig || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+  const expected = await hmacSha256Base64Url(password, payload);
+  return expected === sig;
+}
+
+function adminCookieHeader(token) {
+  return `${ADMIN_SESSION_COOKIE}=${token}; Path=/; Max-Age=${ADMIN_SESSION_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+async function authorizeAdminFromRequest(request, url, env) {
+  if (await verifyAdminSession(request, env)) return { ok: true, via: 'session' };
+  const uid = url.searchParams.get('uid') || '';
+  if (uid && ADMIN_UIDS.has(uid)) return { ok: true, uid, via: 'uid' };
+  return { ok: false, status: 403, error: 'FORBIDDEN' };
+}
+
+async function handleAdminLogin(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const password = String(body.password || '').trim();
+  const expected = String(env.ADMIN_PASSWORD || '').trim();
+  if (!expected) return json({ success: false, error: 'ADMIN_PASSWORD missing' }, 500);
+  if (!password || password !== expected) return json({ success: false, error: 'INVALID_PASSWORD' }, 403);
+  const token = await createAdminSession(env);
+  return new Response(JSON.stringify({ success: true }), {
+    headers: {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'Set-Cookie': adminCookieHeader(token),
+      ...CORS,
+    },
+  });
+}
+
+function handleAdminLogout() {
+  return new Response(JSON.stringify({ success: true }), {
+    headers: {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'Set-Cookie': `${ADMIN_SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`,
+      ...CORS,
+    },
+  });
 }
 
 function injectMonitorRiskPanel(html) {
@@ -1213,7 +1298,7 @@ function surveyRecordFromRow(row = {}) {
 async function listSurveyRecords(env, filters = {}) {
   if (!env.DB) throw new Error('D1 binding missing');
   const uid = String(filters.uid || '').trim();
-  if (!ADMIN_UIDS.has(uid)) return { success: false, error: 'FORBIDDEN' };
+  if (!filters.authorized && !ADMIN_UIDS.has(uid)) return { success: false, error: 'FORBIDDEN' };
   const search = String(filters.search || '').trim();
   const residenceArea = String(filters.residenceArea || filters.residence_area || '').trim();
   const gender = String(filters.gender || '').trim();
@@ -2245,6 +2330,11 @@ export default {
     try {
       if (url.pathname === '/line-webhook' && request.method === 'POST') return handleLineWebhook(request, env, ctx);
       if (url.pathname === '/api/hub-test' && request.method === 'GET') return json({ success: true, data: await hubStatus(env) });
+      if (url.pathname === '/api/admin/login' && request.method === 'POST') return handleAdminLogin(request, env);
+      if (url.pathname === '/api/admin/logout' && request.method === 'POST') return handleAdminLogout();
+      if (url.pathname === '/api/admin/session' && request.method === 'GET') {
+        return json({ success: true, authenticated: await verifyAdminSession(request, env) });
+      }
       if (url.pathname === '/hub-test' && request.method === 'GET') {
         return new Response(renderHubHtml(await hubStatus(env), url.origin), {
           headers: { 'Content-Type': 'text/html; charset=UTF-8', ...CORS },
@@ -2294,15 +2384,15 @@ export default {
         return json(await getSurveySummary(env));
       }
       if (url.pathname === '/api/survey/records' && request.method === 'GET') {
-        const auth = authorizeAdminFromQuery(url);
+        const auth = await authorizeAdminFromRequest(request, url, env);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
-        const result = await listSurveyRecords(env, Object.fromEntries(url.searchParams.entries()));
+        const result = await listSurveyRecords(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true });
         return json(result, result.success ? 200 : 403);
       }
       if (url.pathname === '/api/survey/export.csv' && request.method === 'GET') {
-        const auth = authorizeAdminFromQuery(url);
+        const auth = await authorizeAdminFromRequest(request, url, env);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
-        const result = await exportSurveyRecordsCsv(env, Object.fromEntries(url.searchParams.entries()));
+        const result = await exportSurveyRecordsCsv(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true });
         if (!result.success) return json(result, 403);
         return new Response(result.csv, {
           headers: {
@@ -2315,9 +2405,8 @@ export default {
       }
       if (url.pathname === '/api/survey/backfill-residence' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
-        const uid = String(body.uid || url.searchParams.get('uid') || '').trim();
-        if (!uid) return json({ success: false, error: 'MISSING_UID' }, 400);
-        if (!ADMIN_UIDS.has(uid)) return json({ success: false, error: 'FORBIDDEN' }, 403);
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await backfillSurveyResidenceAreas(env, body.limit || url.searchParams.get('limit') || 5000));
       }
       if (url.pathname === '/api/line-oa/backfill-signals' && ['GET', 'POST'].includes(request.method)) {
