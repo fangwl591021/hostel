@@ -13,7 +13,15 @@ const GITHUB_HTML_REF = 'main';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
 const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
-const POINTS_SURVEY_TRIGGER_ALIASES = ['住宿點數', '旅遊臺南住宿點數', '水映南瀛點數專區', '點數請領'];
+const POINTS_SURVEY_TRIGGER_ALIASES = [
+  '住宿點數',
+  '住宿點數專區',
+  '旅遊臺南住宿點數',
+  '旅遊臺南 住宿點數',
+  '水映南瀛點數專區',
+  '點數請領',
+  '點數專區',
+];
 const POINTS_SURVEY_TEST_TRIGGER = '888';
 const POINTS_SURVEY_ENABLED = false;
 const POINTS_SURVEY_ENABLE_COMMAND = '開始調查';
@@ -614,19 +622,47 @@ function mergeTagValues(existing = '', additions = []) {
   return [...new Set(values)].join(',');
 }
 
+function safeDecodeURIComponent(value = '') {
+  const text = String(value || '');
+  try {
+    return decodeURIComponent(text.replace(/\+/g, ' '));
+  } catch (_err) {
+    return text;
+  }
+}
+
+function normalizeSurveyTriggerText(value = '') {
+  return safeDecodeURIComponent(value)
+    .replace(/\s+/g, '')
+    .replace(/[｜|:：,，。．.、_\-]/g, '')
+    .trim();
+}
+
+function getSurveyTriggerTexts(event = {}) {
+  const type = String(event.message?.type || event.type || '').trim();
+  const values = [];
+  if (type === 'text') values.push(String(event.message?.text || '').trim());
+  if (type === 'postback') {
+    const data = String(event.postback?.data || '').trim();
+    const decodedData = safeDecodeURIComponent(data);
+    const params = new URLSearchParams(data);
+    const decodedParams = new URLSearchParams(decodedData);
+    const paramKeys = ['answer', 'keyword', 'label', 'title', 'text', 'message', 'action', 'name', 'menu', 'richmenu', 'rich_menu'];
+    values.push(data, decodedData);
+    for (const key of paramKeys) {
+      values.push(params.get(key), decodedParams.get(key));
+    }
+    for (const value of params.values()) values.push(value);
+    for (const value of decodedParams.values()) values.push(value);
+  }
+  return [...new Set(values.map(v => String(v || '').trim()).filter(Boolean))];
+}
+
 function getSurveyAnswerText(event = {}) {
   const type = String(event.message?.type || event.type || '').trim();
   if (type === 'text') return String(event.message?.text || '').trim();
   if (type === 'postback') {
-    const data = String(event.postback?.data || '').trim();
-    const params = new URLSearchParams(data);
-    return [
-      params.get('answer'),
-      params.get('keyword'),
-      params.get('label'),
-      params.get('title'),
-      data,
-    ].map(v => String(v || '').trim()).find(Boolean) || '';
+    return getSurveyTriggerTexts(event)[0] || '';
   }
   return '';
 }
@@ -671,17 +707,17 @@ async function isPointsSurveyEnabled(env) {
 }
 
 async function isPointsSurveyTrigger(env, event = {}) {
-  const answer = getSurveyAnswerText(event);
-  const data = String(event.postback?.data || '').trim();
-  if (answer === POINTS_SURVEY_TEST_TRIGGER || data.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`)) return true;
+  const texts = getSurveyTriggerTexts(event);
+  const normalizedTexts = texts.map(normalizeSurveyTriggerText);
+  if (normalizedTexts.some(text => text === POINTS_SURVEY_TEST_TRIGGER || text.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`))) return true;
   if (!await isPointsSurveyEnabled(env)) return false;
-  return POINTS_SURVEY_TRIGGER_ALIASES.some(keyword => answer.includes(keyword) || data.includes(keyword));
+  const normalizedAliases = POINTS_SURVEY_TRIGGER_ALIASES.map(normalizeSurveyTriggerText);
+  return normalizedAliases.some(keyword => normalizedTexts.some(text => text.includes(keyword)));
 }
 
 function isPointsSurveyTestTrigger(event = {}) {
-  const answer = getSurveyAnswerText(event);
-  const data = String(event.postback?.data || '').trim();
-  return answer === POINTS_SURVEY_TEST_TRIGGER || data.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`);
+  const normalizedTexts = getSurveyTriggerTexts(event).map(normalizeSurveyTriggerText);
+  return normalizedTexts.some(text => text === POINTS_SURVEY_TEST_TRIGGER || text.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`));
 }
 
 function isSurveyOptionAnswer(step, answer) {
