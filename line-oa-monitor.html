@@ -17,7 +17,10 @@
       <header class="p-5 border-b border-slate-200">
         <h1 class="text-2xl font-black">LINE 聊天室監控</h1>
         <p class="text-sm text-slate-500 mt-1">只監看、標記與分析，不自動代回覆。</p>
-        <a href="/broadcast" class="inline-flex mt-3 rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-bold">分時推播工作台</a>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <a href="/broadcast" class="inline-flex rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-bold">分時推播工作台</a>
+          <a href="/crm" class="inline-flex rounded-xl bg-emerald-500 text-white px-4 py-2 text-sm font-bold">問卷 CRM</a>
+        </div>
       </header>
       <div class="p-4 border-b border-slate-200 space-y-3">
         <div class="flex gap-2">
@@ -92,6 +95,18 @@
           </div>
           <div id="risk-list" class="space-y-2"></div>
         </div>
+      </section>
+      <section class="rounded-2xl border border-slate-200 p-4">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <h2 class="text-xl font-black">問卷 CRM</h2>
+          <a href="/crm" class="rounded-xl bg-emerald-50 text-emerald-700 px-3 py-2 text-xs font-bold">開啟</a>
+        </div>
+        <p class="text-sm leading-6 text-slate-500 mb-3">查看性別、居住地區與問卷答案，並回溯修正監控卡片地區。</p>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="survey-backfill" type="button" class="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm font-bold">回溯修正</button>
+          <button id="survey-download" type="button" class="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold">下載 CSV</button>
+        </div>
+        <div id="survey-crm-status" class="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">尚未執行</div>
       </section>
       <section hidden class="rounded-2xl border border-slate-200 p-4">
         <div class="flex items-center justify-between gap-3 mb-3">
@@ -416,6 +431,34 @@
       }
     }
 
+    async function backfillSurveyResidenceFromMonitor() {
+      const status = el('survey-crm-status');
+      const button = el('survey-backfill');
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = '回溯中';
+      status.textContent = '正在修正問卷居住地區...';
+      try {
+        const data = await fetchJson(`${WORKER_URL}/api/survey/backfill-residence?uid=${encodeURIComponent(profile.userId)}&limit=5000`);
+        status.textContent = `回溯完成：掃描 ${data.data?.scanned || 0} 筆，修正 ${data.data?.updated || 0} 筆`;
+        await loadAudience();
+        await loadThreads();
+        if (activeId) await loadThread(activeId);
+        toast('問卷地區已回溯');
+      } catch (err) {
+        status.textContent = err.message || '回溯失敗';
+        toast(status.textContent);
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+
+    function downloadSurveyCsvFromMonitor() {
+      if (!profile.userId) return toast('缺少管理員 UID');
+      location.href = `${WORKER_URL}/api/survey/export.csv?uid=${encodeURIComponent(profile.userId)}&limit=5000`;
+    }
+
     function broadcastUserIds() {
       return el('broadcast-userids').value
         .split(/\s+/)
@@ -571,6 +614,8 @@
     });
     el('search').addEventListener('input', renderThreads);
     el('sync-now').addEventListener('click', () => syncNow());
+    el('survey-backfill').addEventListener('click', () => backfillSurveyResidenceFromMonitor());
+    el('survey-download').addEventListener('click', () => downloadSurveyCsvFromMonitor());
     el('broadcast-refresh').addEventListener('click', () => loadBroadcastJobs().catch(err => toast(err.message)));
     el('broadcast-preview').addEventListener('click', () => previewBroadcast().catch(err => toast(err.message)));
     el('broadcast-create').addEventListener('click', () => createBroadcast().catch(err => toast(err.message)));
