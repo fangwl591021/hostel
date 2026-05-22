@@ -684,6 +684,30 @@ function isPointsSurveyTestTrigger(event = {}) {
   return answer === POINTS_SURVEY_TEST_TRIGGER || data.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`);
 }
 
+function isSurveyOptionAnswer(step, answer) {
+  if (!step || !answer) return false;
+  return (step.options || []).some(option => option === answer);
+}
+
+async function shouldPrioritizePointsSurvey(env, payload = {}) {
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  for (const event of events) {
+    const source = event.source || {};
+    const userId = String(source.userId || '').trim();
+    if (!userId || !event.replyToken) continue;
+    const answer = getSurveyAnswerText(event);
+    if ([POINTS_SURVEY_ENABLE_COMMAND, POINTS_SURVEY_DISABLE_COMMAND].includes(answer)) return true;
+    if (await isPointsSurveyTrigger(env, event)) return true;
+    const profile = await getSurveyProfile(env, userId);
+    if (profile && !Number(profile.completed || 0)) {
+      const stepIndex = Math.max(0, POINTS_SURVEY_STEPS.findIndex(step => step.key === profile.current_step));
+      const step = POINTS_SURVEY_STEPS[stepIndex] || POINTS_SURVEY_STEPS[0];
+      if (isSurveyOptionAnswer(step, answer)) return true;
+    }
+  }
+  return false;
+}
+
 function buildQuickReply(options = []) {
   return {
     items: options.slice(0, 13).map(label => ({
@@ -1026,6 +1050,10 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   const step = POINTS_SURVEY_STEPS[stepIndex] || POINTS_SURVEY_STEPS[0];
   const answer = getSurveyAnswerText(event);
   if (!answer || await isPointsSurveyTrigger(env, event)) return null;
+  if (!isSurveyOptionAnswer(step, answer)) {
+    await saveSurveyEvent(env, event, `invalid_${step.key}`, answer);
+    return null;
+  }
 
   let answers = {};
   try { answers = JSON.parse(current.answers_json || '{}'); } catch (_err) {}
@@ -1742,16 +1770,34 @@ async function handleLineWebhook(request, env, ctx) {
   }
 
   ctx.waitUntil((async () => {
-    try {
-      await postToMotherWebhook(env, rawBody, signature);
-    } catch (err) {
-      console.error('mother webhook processing failed:', err.message);
+    let surveyFirst = false;
+    try { surveyFirst = await shouldPrioritizePointsSurvey(env, payload); } catch (err) {
+      console.warn('survey priority check failed:', err.message);
     }
-    try { await storeLineEvents(env, payload); } catch (err) {
-      console.warn('storeLineEvents failed:', err.message);
-    }
-    try { await handlePointsSurveyAutomation(env, payload); } catch (err) {
-      console.warn('points survey failed:', err.message);
+    if (surveyFirst) {
+      try { await storeLineEvents(env, payload); } catch (err) {
+        console.warn('storeLineEvents failed:', err.message);
+      }
+      try { await handlePointsSurveyAutomation(env, payload); } catch (err) {
+        console.warn('points survey failed:', err.message);
+      }
+      try {
+        await postToMotherWebhook(env, rawBody, signature);
+      } catch (err) {
+        console.error('mother webhook processing failed:', err.message);
+      }
+    } else {
+      try {
+        await postToMotherWebhook(env, rawBody, signature);
+      } catch (err) {
+        console.error('mother webhook processing failed:', err.message);
+      }
+      try { await storeLineEvents(env, payload); } catch (err) {
+        console.warn('storeLineEvents failed:', err.message);
+      }
+      try { await handlePointsSurveyAutomation(env, payload); } catch (err) {
+        console.warn('points survey failed:', err.message);
+      }
     }
     try { await forwardWebhookToObserver(env, rawBody, signature); } catch (err) {
       console.warn('observer forward failed:', err.message);
