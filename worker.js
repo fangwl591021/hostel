@@ -544,6 +544,7 @@ function getSurveyAnswerText(event = {}) {
 
 async function getAppSetting(env, key, fallback = '') {
   if (!env.DB || !key) return fallback;
+  await ensureAppSettingsTable(env);
   const row = await env.DB.prepare(`
     SELECT value
     FROM app_settings
@@ -554,6 +555,7 @@ async function getAppSetting(env, key, fallback = '') {
 
 async function setAppSetting(env, key, value) {
   if (!env.DB || !key) return;
+  await ensureAppSettingsTable(env);
   await env.DB.prepare(`
     INSERT INTO app_settings (key, value, updated_at)
     VALUES (?, ?, ?)
@@ -561,6 +563,17 @@ async function setAppSetting(env, key, value) {
       value = excluded.value,
       updated_at = excluded.updated_at
   `).bind(key, String(value ?? ''), new Date().toISOString()).run();
+}
+
+async function ensureAppSettingsTable(env) {
+  if (!env.DB) return;
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
 }
 
 async function isPointsSurveyEnabled(env) {
@@ -1009,7 +1022,13 @@ async function handlePointsSurveyControlCommand(env, event = {}) {
   const userId = String(event.source?.userId || '').trim();
   if (!ADMIN_UIDS.has(userId)) {
     await saveSurveyEvent(env, event, 'survey_control_denied', answer);
-    return null;
+    return {
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'text',
+        text: `此指令限管理員使用。\n你的 LINE UID：${userId || '未取得'}`,
+      }],
+    };
   }
   const enabled = answer === POINTS_SURVEY_ENABLE_COMMAND;
   await setAppSetting(env, POINTS_SURVEY_ENABLED_SETTING_KEY, enabled ? '1' : '0');
