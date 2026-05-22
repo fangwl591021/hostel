@@ -78,10 +78,55 @@
     </section>
 
     <section class="grid grid-cols-4 gap-3">
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">總筆數</p><b id="count" class="text-3xl">0</b></div>
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">女性</p><b id="female" class="text-3xl">0</b></div>
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">男性</p><b id="male" class="text-3xl">0</b></div>
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">已完成</p><b id="done" class="text-3xl">0</b></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">總筆數</p><b id="count" class="text-3xl">0</b><p id="summary-updated" class="mt-2 text-xs text-slate-400">尚未載入</p></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">完成率</p><b id="completion-rate" class="text-3xl">0%</b><p id="done-detail" class="mt-2 text-xs text-slate-400">0 / 0</p></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">最大居住地</p><b id="top-area" class="text-2xl">-</b><p id="top-area-count" class="mt-2 text-xs text-slate-400">0 人</p></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">主要客群</p><b id="top-party" class="text-2xl">-</b><p id="top-party-count" class="mt-2 text-xs text-slate-400">0 人</p></div>
+    </section>
+
+    <section class="grid grid-cols-12 gap-4">
+      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h2 class="text-lg font-black">性別分布</h2>
+          <span id="gender-total" class="text-xs font-bold text-slate-400">0 人</span>
+        </div>
+        <div id="gender-bars" class="space-y-3"></div>
+      </div>
+      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h2 class="text-lg font-black">居住地區排行</h2>
+          <span class="text-xs font-bold text-slate-400">問卷回答</span>
+        </div>
+        <div id="area-bars" class="space-y-3"></div>
+      </div>
+      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h2 class="text-lg font-black">旅遊興趣</h2>
+          <span class="text-xs font-bold text-slate-400">點數受眾</span>
+        </div>
+        <div id="interest-bars" class="space-y-3"></div>
+      </div>
+      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h2 class="text-lg font-black">同行型態</h2>
+          <span class="text-xs font-bold text-slate-400">分眾用途</span>
+        </div>
+        <div id="party-bars" class="space-y-3"></div>
+      </div>
+      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h2 class="text-lg font-black">住宿偏好</h2>
+          <span class="text-xs font-bold text-slate-400">推薦用途</span>
+        </div>
+        <div id="lodging-bars" class="space-y-3"></div>
+      </div>
+      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <h2 class="text-lg font-black">預算區間</h2>
+          <span class="text-xs font-bold text-slate-400">推播分層</span>
+        </div>
+        <div id="budget-bars" class="space-y-3"></div>
+      </div>
     </section>
 
     <section class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -134,6 +179,59 @@
         ? 'rounded-xl bg-emerald-50 text-emerald-700 px-4 py-3 text-sm font-bold'
         : 'rounded-xl bg-amber-50 text-amber-700 px-4 py-3 text-sm font-bold';
     }
+    function countBy(records, key) {
+      const map = new Map();
+      records.forEach(record => {
+        const label = String(record[key] || '未填').trim() || '未填';
+        map.set(label, (map.get(label) || 0) + 1);
+      });
+      return [...map.entries()]
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-Hant'));
+    }
+    function renderBars(id, rows, total, color = 'bg-emerald-500') {
+      const box = el(id);
+      if (!rows.length) {
+        box.innerHTML = '<p class="rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-400">尚無資料</p>';
+        return;
+      }
+      box.innerHTML = rows.slice(0, 6).map(row => {
+        const pct = total ? Math.round(row.count / total * 100) : 0;
+        return `
+          <div>
+            <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+              <b class="truncate">${escapeHtml(row.label)}</b>
+              <span class="shrink-0 text-slate-500">${row.count} 人 · ${pct}%</span>
+            </div>
+            <div class="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div class="h-full rounded-full ${color}" style="width:${Math.max(4, pct)}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    function renderAnalytics(records = []) {
+      const total = records.length;
+      const done = records.filter(r => Number(r.completed)).length;
+      const completionRate = total ? Math.round(done / total * 100) : 0;
+      const areas = countBy(records, 'residenceArea');
+      const parties = countBy(records, 'partyType');
+      el('count').textContent = total;
+      el('completion-rate').textContent = `${completionRate}%`;
+      el('done-detail').textContent = `${done} / ${total}`;
+      el('summary-updated').textContent = total ? `更新 ${new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}` : '尚未載入';
+      el('top-area').textContent = areas[0]?.label || '-';
+      el('top-area-count').textContent = `${areas[0]?.count || 0} 人`;
+      el('top-party').textContent = parties[0]?.label || '-';
+      el('top-party-count').textContent = `${parties[0]?.count || 0} 人`;
+      el('gender-total').textContent = `${total} 人`;
+      renderBars('gender-bars', countBy(records, 'gender'), total, 'bg-rose-500');
+      renderBars('area-bars', areas, total, 'bg-sky-500');
+      renderBars('interest-bars', countBy(records, 'interest'), total, 'bg-amber-500');
+      renderBars('party-bars', parties, total, 'bg-violet-500');
+      renderBars('lodging-bars', countBy(records, 'lodgingType'), total, 'bg-teal-500');
+      renderBars('budget-bars', countBy(records, 'budget'), total, 'bg-slate-700');
+    }
     async function login() {
       const password = el('password').value.trim();
       if (!password) throw new Error('請輸入管理員密碼');
@@ -157,10 +255,7 @@
       }
     }
     function render(records = []) {
-      el('count').textContent = records.length;
-      el('female').textContent = records.filter(r => r.gender === '女性').length;
-      el('male').textContent = records.filter(r => r.gender === '男性').length;
-      el('done').textContent = records.filter(r => Number(r.completed)).length;
+      renderAnalytics(records);
       el('rows').innerHTML = records.map(r => `
         <tr class="hover:bg-slate-50">
           <td class="px-4 py-3"><b>${escapeHtml(r.displayName || '訪客')}</b><br><span class="text-xs text-slate-400">${escapeHtml(r.lineUserId)}</span></td>
