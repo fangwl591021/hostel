@@ -15,6 +15,9 @@ const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TRIGGER_ALIASES = ['住宿點數', '旅遊臺南住宿點數', '水映南瀛點數專區', '點數請領'];
 const POINTS_SURVEY_TEST_TRIGGER = '888';
 const POINTS_SURVEY_ENABLED = false;
+const POINTS_SURVEY_ENABLE_COMMAND = '開始調查';
+const POINTS_SURVEY_DISABLE_COMMAND = '停止調查';
+const POINTS_SURVEY_ENABLED_SETTING_KEY = 'points_survey_enabled';
 
 const POINTS_SURVEY_STEPS = [
   {
@@ -539,11 +542,37 @@ function getSurveyAnswerText(event = {}) {
   return '';
 }
 
-function isPointsSurveyTrigger(event = {}) {
+async function getAppSetting(env, key, fallback = '') {
+  if (!env.DB || !key) return fallback;
+  const row = await env.DB.prepare(`
+    SELECT value
+    FROM app_settings
+    WHERE key = ?
+  `).bind(key).first();
+  return row?.value ?? fallback;
+}
+
+async function setAppSetting(env, key, value) {
+  if (!env.DB || !key) return;
+  await env.DB.prepare(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = excluded.updated_at
+  `).bind(key, String(value ?? ''), new Date().toISOString()).run();
+}
+
+async function isPointsSurveyEnabled(env) {
+  const fallback = POINTS_SURVEY_ENABLED ? '1' : '0';
+  return await getAppSetting(env, POINTS_SURVEY_ENABLED_SETTING_KEY, fallback) === '1';
+}
+
+async function isPointsSurveyTrigger(env, event = {}) {
   const answer = getSurveyAnswerText(event);
   const data = String(event.postback?.data || '').trim();
   if (answer === POINTS_SURVEY_TEST_TRIGGER || data.includes(`answer=${POINTS_SURVEY_TEST_TRIGGER}`)) return true;
-  if (!POINTS_SURVEY_ENABLED) return false;
+  if (!await isPointsSurveyEnabled(env)) return false;
   return POINTS_SURVEY_TRIGGER_ALIASES.some(keyword => answer.includes(keyword) || data.includes(keyword));
 }
 
@@ -890,7 +919,7 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   const stepIndex = Math.max(0, POINTS_SURVEY_STEPS.findIndex(step => step.key === current.current_step));
   const step = POINTS_SURVEY_STEPS[stepIndex] || POINTS_SURVEY_STEPS[0];
   const answer = getSurveyAnswerText(event);
-  if (!answer || isPointsSurveyTrigger(event)) return null;
+  if (!answer || await isPointsSurveyTrigger(env, event)) return null;
 
   let answers = {};
   try { answers = JSON.parse(current.answers_json || '{}'); } catch (_err) {}
@@ -974,13 +1003,40 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   };
 }
 
+async function handlePointsSurveyControlCommand(env, event = {}) {
+  const answer = getSurveyAnswerText(event);
+  if (![POINTS_SURVEY_ENABLE_COMMAND, POINTS_SURVEY_DISABLE_COMMAND].includes(answer)) return null;
+  const userId = String(event.source?.userId || '').trim();
+  if (!ADMIN_UIDS.has(userId)) {
+    await saveSurveyEvent(env, event, 'survey_control_denied', answer);
+    return null;
+  }
+  const enabled = answer === POINTS_SURVEY_ENABLE_COMMAND;
+  await setAppSetting(env, POINTS_SURVEY_ENABLED_SETTING_KEY, enabled ? '1' : '0');
+  await saveSurveyEvent(env, event, enabled ? 'survey_enabled' : 'survey_disabled', answer);
+  return {
+    replyToken: event.replyToken,
+    messages: [{
+      type: 'text',
+      text: enabled
+        ? '已開啟問卷。用戶點到點數相關關鍵字時會啟動調查。'
+        : '已停止問卷。用戶點到點數相關關鍵字時不會再啟動調查。',
+    }],
+  };
+}
+
 async function handlePointsSurveyAutomation(env, payload = {}) {
   const events = Array.isArray(payload.events) ? payload.events : [];
   for (const event of events) {
     const source = event.source || {};
     const userId = String(source.userId || '').trim();
     if (!userId || !event.replyToken) continue;
-    if (isPointsSurveyTrigger(event)) {
+    const controlReply = await handlePointsSurveyControlCommand(env, event);
+    if (controlReply) {
+      await replyLineMessage(env, controlReply);
+      continue;
+    }
+    if (await isPointsSurveyTrigger(env, event)) {
       const replyPayload = await startPointsSurvey(env, event);
       if (replyPayload) await replyLineMessage(env, replyPayload);
       continue;
