@@ -26,10 +26,16 @@
 
   <main class="max-w-7xl mx-auto px-6 py-6 space-y-5">
     <section class="bg-white border border-slate-200 rounded-2xl p-5">
+      <div class="mb-5 rounded-2xl bg-slate-50 border border-slate-200 p-4">
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="block text-sm font-bold text-slate-600 min-w-[280px] flex-1">管理員密碼
+            <input id="password" type="password" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="輸入管理員密碼">
+          </label>
+          <button id="login" type="button" class="rounded-xl bg-emerald-500 text-white px-6 py-3 font-bold">登入 CRM</button>
+          <span id="auth-status" class="rounded-xl bg-amber-50 text-amber-700 px-4 py-3 text-sm font-bold">尚未登入</span>
+        </div>
+      </div>
       <div class="grid grid-cols-6 gap-3 items-end">
-        <label class="block text-sm font-bold text-slate-600 col-span-2">管理員密碼
-          <input id="password" type="password" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="輸入管理員密碼">
-        </label>
         <label class="block text-sm font-bold text-slate-600">性別
           <select id="gender" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
             <option value="">不限</option>
@@ -63,10 +69,9 @@
           <input id="search" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="姓名、UID、標籤、答案">
         </label>
         <div class="col-span-4 flex flex-wrap gap-2">
-          <button id="login" type="button" class="rounded-xl bg-emerald-500 text-white px-5 py-3 font-bold">登入</button>
-          <button id="load" type="button" class="rounded-xl bg-slate-900 text-white px-5 py-3 font-bold">載入 CRM</button>
-          <button id="backfill" type="button" class="rounded-xl bg-emerald-500 text-white px-5 py-3 font-bold">回溯修正居住地區</button>
-          <button id="download" type="button" class="rounded-xl border border-slate-300 px-5 py-3 font-bold">下載 CSV</button>
+          <button id="load" type="button" data-auth-action class="rounded-xl bg-slate-900 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">載入 CRM</button>
+          <button id="backfill" type="button" data-auth-action class="rounded-xl bg-emerald-500 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">回溯修正居住地區</button>
+          <button id="download" type="button" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載 CSV</button>
           <span id="status" class="px-3 py-3 text-sm text-slate-500"></span>
         </div>
       </div>
@@ -102,6 +107,7 @@
   </main>
 
   <script>
+    let authenticated = false;
     const el = id => document.getElementById(id);
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const params = () => {
@@ -113,19 +119,42 @@
       return p;
     };
     function setStatus(text) { el('status').textContent = text || ''; }
+    function friendlyError(error = '') {
+      const value = String(error || '');
+      if (value === 'FORBIDDEN') return '請先登入 CRM，或密碼不正確。';
+      if (value === 'MISSING_UID') return '後端尚未更新到免 UID 版本，請重新部署 Worker 後再試。';
+      if (value === 'INVALID_PASSWORD') return '密碼不正確，請重新輸入。';
+      return value || '操作失敗';
+    }
+    function setAuthenticated(value) {
+      authenticated = !!value;
+      document.querySelectorAll('[data-auth-action]').forEach(button => { button.disabled = !authenticated; });
+      el('auth-status').textContent = authenticated ? '已登入，可以操作 CRM' : '尚未登入';
+      el('auth-status').className = authenticated
+        ? 'rounded-xl bg-emerald-50 text-emerald-700 px-4 py-3 text-sm font-bold'
+        : 'rounded-xl bg-amber-50 text-amber-700 px-4 py-3 text-sm font-bold';
+    }
     async function login() {
       const password = el('password').value.trim();
       if (!password) throw new Error('請輸入管理員密碼');
-      const res = await fetch('/api/admin/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || '登入失敗');
-      el('password').value = '';
-      setStatus('已登入');
-      await load();
+      el('login').disabled = true;
+      el('login').textContent = '登入中';
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(friendlyError(data.error));
+        el('password').value = '';
+        setAuthenticated(true);
+        setStatus('已登入');
+        await load();
+      } finally {
+        el('login').disabled = false;
+        el('login').textContent = '重新登入';
+      }
     }
     function render(records = []) {
       el('count').textContent = records.length;
@@ -147,21 +176,25 @@
       `).join('');
     }
     async function load() {
+      if (!authenticated) throw new Error('請先登入 CRM');
       setStatus('載入中...');
       const res = await fetch(`/api/survey/records?${params()}`);
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || '載入失敗');
+      if (!data.success) throw new Error(friendlyError(data.error));
       render(data.data.records || []);
       setStatus(`已載入 ${data.data.count} 筆`);
     }
     el('login').addEventListener('click', () => login().catch(err => setStatus(err.message)));
+    el('password').addEventListener('keydown', event => {
+      if (event.key === 'Enter') login().catch(err => setStatus(err.message));
+    });
     el('load').addEventListener('click', () => load().catch(err => setStatus(err.message)));
     el('backfill').addEventListener('click', async () => {
       try {
         setStatus('回溯中...');
         const res = await fetch('/api/survey/backfill-residence?limit=5000');
         const data = await res.json();
-        if (!data.success) throw new Error(data.error || '回溯失敗');
+        if (!data.success) throw new Error(friendlyError(data.error));
         setStatus(`回溯完成：${data.data.updated} 筆`);
         await load();
       } catch (err) {
@@ -176,9 +209,14 @@
       }
     });
     fetch('/api/admin/session').then(r => r.json()).then(data => {
+      setAuthenticated(data.authenticated);
       setStatus(data.authenticated ? '已登入' : '請先登入');
       if (data.authenticated) load().catch(err => setStatus(err.message));
-    }).catch(() => setStatus('請先登入'));
+    }).catch(() => {
+      setAuthenticated(false);
+      setStatus('請先登入');
+    });
+    setAuthenticated(false);
   </script>
 </body>
 </html>
