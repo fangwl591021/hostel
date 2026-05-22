@@ -21,6 +21,9 @@ const POINTS_SURVEY_DISABLE_COMMAND = '停止調查';
 const POINTS_SURVEY_ENABLED_SETTING_KEY = 'points_survey_enabled';
 const ADMIN_SESSION_COOKIE = 'hostel_admin_session';
 const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
+const HOURLY_SYNC_SETTING_KEY = 'last_hourly_sync_at';
+const HOURLY_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const MEMBER_LIST_API_URL = 'https://aiwe.cc/index.php/wp-json/wetw/v1/query-shop-2500-line-user-list';
 
 const POINTS_SURVEY_STEPS = [
   {
@@ -1384,6 +1387,169 @@ async function exportSurveyRecordsCsv(env, filters = {}) {
   return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
 }
 
+async function runHourlyMonitorSync(env, force = false) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureAppSettingsTable(env);
+  const now = new Date();
+  const lastValue = await getAppSetting(env, HOURLY_SYNC_SETTING_KEY, '');
+  const lastTime = lastValue ? Date.parse(lastValue) : 0;
+  if (!force && lastTime && now.getTime() - lastTime < HOURLY_SYNC_INTERVAL_MS) {
+    return { success: true, skipped: true, lastSyncAt: lastValue };
+  }
+  await setAppSetting(env, HOURLY_SYNC_SETTING_KEY, now.toISOString());
+  const postbacks = await backfillPostbackText(env, 1500);
+  const signals = await backfillAudienceSignals(env, 80);
+  const surveyResidence = await backfillSurveyResidenceAreas(env, 5000);
+  return {
+    success: true,
+    skipped: false,
+    syncedAt: now.toISOString(),
+    data: { postbacks, signals, surveyResidence },
+  };
+}
+
+function normalizeImportedLineUserId(value) {
+  const userId = String(value || '').trim();
+  return /^U[a-fA-F0-9]{20,}$/.test(userId) ? userId : '';
+}
+
+function memberTypeMeta(typeKey) {
+  const map = {
+    type_1: {
+      label: '加入會員',
+      tags: ['會員名單', '加入會員'],
+      summary: '母站會員名單：加入之 USER',
+    },
+    type_2: {
+      label: '註冊未領點',
+      tags: ['會員名單', '已註冊', '未領點'],
+      summary: '母站會員名單：已註冊，尚未領點',
+    },
+    type_3: {
+      label: '註冊已領點',
+      tags: ['會員名單', '已註冊', '已領點'],
+      summary: '母站會員名單：已註冊，已領點',
+    },
+  };
+  return map[typeKey] || null;
+}
+
+function collectMemberApiUsers(payload = {}) {
+  const data = payload.data || {};
+  const members = new Map();
+  const typeCounts = {};
+  for (const typeKey of ['type_1', 'type_2', 'type_3']) {
+    const meta = memberTypeMeta(typeKey);
+    const list = Array.isArray(data[typeKey]?.list) ? data[typeKey].list : [];
+    typeCounts[typeKey] = list.length;
+    for (const raw of list) {
+      const userId = normalizeImportedLineUserId(raw);
+      if (!userId) continue;
+      const current = members.get(userId) || {
+        userId,
+        tags: new Set(),
+        labels: [],
+        summaries: [],
+      };
+      meta.tags.forEach(tag => current.tags.add(tag));
+      current.labels.push(meta.label);
+      current.summaries.push(meta.summary);
+      members.set(userId, current);
+    }
+  }
+  return { members: [...members.values()], typeCounts };
+}
+
+async function fetchMemberApiList(env, type = 'all') {
+  const apiKey = String(env.LINE_USER_LIST_API_KEY || env.WETW_API_KEY || env.MEMBER_API_KEY || '').trim();
+  if (!apiKey) return { success: false, error: 'MISSING_LINE_USER_LIST_API_KEY' };
+  const queryType = ['1', '2', '3', 'all'].includes(String(type || 'all')) ? String(type || 'all') : 'all';
+  const res = await fetch(MEMBER_LIST_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, type: queryType }),
+  });
+  const text = await res.text();
+  let payload = null;
+  try { payload = JSON.parse(text); } catch (_err) {}
+  if (!res.ok || !payload?.success) {
+    return {
+      success: false,
+      error: payload?.code || `MEMBER_API_FAILED_${res.status}`,
+      message: payload?.message || text.slice(0, 200),
+    };
+  }
+  return { success: true, data: payload };
+}
+
+function importedMemberStatement(env, member) {
+  const now = new Date().toISOString();
+  const threadId = `user:${member.userId}`;
+  const tags = [...member.tags].filter(Boolean).slice(0, 8);
+  const paddedTags = [...tags, '', '', '', '', ''].slice(0, 5);
+  const displayName = `會員 ${member.userId.slice(-6)}`;
+  const summary = [...new Set(member.summaries)].join('；') || '母站會員名單匯入';
+  return env.DB.prepare(`
+    INSERT INTO line_threads (
+      id, source_type, source_user_id, source_group_id, display_name, picture_url,
+      status, risk_level, summary, unread_count, tags,
+      last_message_at, created_at, updated_at
+    ) VALUES (?, 'line_oa', ?, '', ?, '', 'pending', 'low', ?, 0, ?, '', ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      source_user_id = excluded.source_user_id,
+      display_name = CASE WHEN line_threads.display_name <> '' THEN line_threads.display_name ELSE excluded.display_name END,
+      status = CASE WHEN line_threads.status = 'closed' THEN line_threads.status ELSE line_threads.status END,
+      summary = CASE
+        WHEN line_threads.summary = '' OR line_threads.summary LIKE '母站會員名單%' THEN excluded.summary
+        ELSE line_threads.summary
+      END,
+      tags = trim(
+        line_threads.tags ||
+        CASE WHEN ? <> '' AND (',' || line_threads.tags || ',') NOT LIKE ? THEN ',' || ? ELSE '' END ||
+        CASE WHEN ? <> '' AND (',' || line_threads.tags || ',') NOT LIKE ? THEN ',' || ? ELSE '' END ||
+        CASE WHEN ? <> '' AND (',' || line_threads.tags || ',') NOT LIKE ? THEN ',' || ? ELSE '' END ||
+        CASE WHEN ? <> '' AND (',' || line_threads.tags || ',') NOT LIKE ? THEN ',' || ? ELSE '' END ||
+        CASE WHEN ? <> '' AND (',' || line_threads.tags || ',') NOT LIKE ? THEN ',' || ? ELSE '' END,
+        ','
+      ),
+      updated_at = excluded.updated_at
+  `).bind(
+    threadId,
+    member.userId,
+    displayName,
+    summary,
+    tags.join(','),
+    now,
+    now,
+    ...paddedTags.flatMap(tag => [tag, `%,${tag},%`, tag])
+  );
+}
+
+async function importMembersToMonitor(env, type = 'all') {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const apiResult = await fetchMemberApiList(env, type);
+  if (!apiResult.success) return apiResult;
+  const { members, typeCounts } = collectMemberApiUsers(apiResult.data);
+  let imported = 0;
+  const chunkSize = 80;
+  for (let i = 0; i < members.length; i += chunkSize) {
+    const chunk = members.slice(i, i + chunkSize).map(member => importedMemberStatement(env, member));
+    if (chunk.length) {
+      await env.DB.batch(chunk);
+      imported += chunk.length;
+    }
+  }
+  return {
+    success: true,
+    data: {
+      imported,
+      typeCounts,
+      source: 'shop_id=2500',
+      syncedAt: new Date().toISOString(),
+    },
+  };
+}
+
 function formatPostbackText(event = {}, fallback = '') {
   const data = String(event.postback?.data || '').trim();
   const params = new URLSearchParams(data);
@@ -2409,6 +2575,18 @@ export default {
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await backfillSurveyResidenceAreas(env, body.limit || url.searchParams.get('limit') || 5000));
       }
+      if (url.pathname === '/api/sync/hourly' && ['GET', 'POST'].includes(request.method)) {
+        const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await runHourlyMonitorSync(env, Boolean(body.force || url.searchParams.get('force'))));
+      }
+      if (url.pathname === '/api/line-oa/import-members' && ['GET', 'POST'].includes(request.method)) {
+        const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await importMembersToMonitor(env, body.type || url.searchParams.get('type') || 'all'));
+      }
       if (url.pathname === '/api/line-oa/backfill-signals' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
         const uid = String(body.uid || url.searchParams.get('uid') || '').trim();
@@ -2455,5 +2633,6 @@ export default {
   },
   async scheduled(_event, env, _ctx) {
     await processBroadcastJobs(env, 3);
+    await runHourlyMonitorSync(env);
   },
 };
