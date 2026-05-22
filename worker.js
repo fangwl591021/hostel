@@ -1742,6 +1742,11 @@ async function handleLineWebhook(request, env, ctx) {
   }
 
   ctx.waitUntil((async () => {
+    try {
+      await postToMotherWebhook(env, rawBody, signature);
+    } catch (err) {
+      console.error('mother webhook processing failed:', err.message);
+    }
     try { await storeLineEvents(env, payload); } catch (err) {
       console.warn('storeLineEvents failed:', err.message);
     }
@@ -1751,17 +1756,13 @@ async function handleLineWebhook(request, env, ctx) {
     try { await forwardWebhookToObserver(env, rawBody, signature); } catch (err) {
       console.warn('observer forward failed:', err.message);
     }
-    try {
-      await postToMotherWebhook(env, rawBody, signature);
-    } catch (err) {
-      console.error('mother webhook processing failed:', err.message);
-    }
   })());
 
   return json({
     success: true,
     queued: true,
     events: Array.isArray(payload.events) ? payload.events.length : 0,
+    motherWebhook: !!getGasWebhookUrl(env),
     forwarded: !!env.FORWARD_WEBHOOK_URL,
   });
 }
