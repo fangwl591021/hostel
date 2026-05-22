@@ -918,8 +918,12 @@ async function appendThreadSurveyTags(env, threadId, additions = [], patch = {})
   const sets = ['tags = ?', "updated_at = datetime('now')"];
   const values = [tags];
   if (patch.inferred_area) {
-    sets.push("inferred_area = CASE WHEN inferred_area = ? OR inferred_area = '' THEN ? ELSE inferred_area END");
-    values.push('', patch.inferred_area);
+    sets.push("inferred_area = ?");
+    values.push(patch.inferred_area);
+  }
+  if (patch.inferred_confidence) {
+    sets.push("inferred_confidence = ?");
+    values.push(patch.inferred_confidence);
   }
   await env.DB.prepare(`UPDATE line_threads SET ${sets.join(', ')} WHERE id = ?`).bind(...values, threadId).run();
 }
@@ -999,7 +1003,12 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   ];
   if (completed) tagAdds.push('分眾:可推播');
   if (step.key === 'gender') tagAdds.push(`問卷性別:${answer}`);
-  await appendThreadSurveyTags(env, threadId, tagAdds, step.key === 'residence_area' ? { inferred_area: answer } : {});
+  await appendThreadSurveyTags(
+    env,
+    threadId,
+    tagAdds,
+    step.key === 'residence_area' ? { inferred_area: answer, inferred_confidence: 'survey' } : {}
+  );
 
   if (nextStep) {
     return {
@@ -1109,6 +1118,46 @@ async function getSurveySummary(env) {
       budget: await groupBy('budget'),
     },
   };
+}
+
+async function backfillSurveyResidenceAreas(env, limit = 5000) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const size = Math.max(1, Math.min(Number(limit || 5000) || 5000, 50000));
+  const { results } = await env.DB.prepare(`
+    SELECT sp.line_user_id, sp.thread_id, sp.residence_area, sp.answers_json
+    FROM line_survey_profiles sp
+    WHERE sp.thread_id <> ''
+      AND (
+        sp.residence_area <> ''
+        OR json_extract(sp.answers_json, '$.residence_area') IS NOT NULL
+      )
+    ORDER BY sp.updated_at DESC
+    LIMIT ?
+  `).bind(size).all();
+  let updated = 0;
+  for (const row of results || []) {
+    let residenceArea = String(row.residence_area || '').trim();
+    if (!residenceArea) {
+      try {
+        residenceArea = String(JSON.parse(row.answers_json || '{}').residence_area || '').trim();
+      } catch (_err) {}
+    }
+    if (!residenceArea) continue;
+    await env.DB.prepare(`
+      UPDATE line_threads
+      SET inferred_area = ?,
+          inferred_confidence = 'survey',
+          tags = CASE
+            WHEN tags LIKE ? THEN tags
+            WHEN tags = '' THEN ?
+            ELSE tags || ',' || ?
+          END,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(residenceArea, `%問卷居住地區:${residenceArea}%`, `問卷居住地區:${residenceArea}`, `問卷居住地區:${residenceArea}`, row.thread_id).run();
+    updated += 1;
+  }
+  return { success: true, data: { scanned: (results || []).length, updated } };
 }
 
 function formatPostbackText(event = {}, fallback = '') {
@@ -1227,6 +1276,8 @@ async function storeLineEvents(env, payload = {}) {
           ELSE line_threads.tags || ',' || excluded.tags
         END,
         inferred_area = CASE
+          WHEN line_threads.inferred_confidence = 'survey' AND excluded.location_address = '' THEN line_threads.inferred_area
+          WHEN excluded.location_address <> '' THEN excluded.inferred_area
           WHEN excluded.inferred_area <> '' AND excluded.inferred_area <> '未判定' THEN excluded.inferred_area
           ELSE line_threads.inferred_area
         END,
@@ -1235,6 +1286,8 @@ async function storeLineEvents(env, payload = {}) {
           ELSE line_threads.inferred_gender
         END,
         inferred_confidence = CASE
+          WHEN line_threads.inferred_confidence = 'survey' AND excluded.location_address = '' THEN line_threads.inferred_confidence
+          WHEN excluded.location_address <> '' THEN 'location'
           WHEN excluded.inferred_confidence <> '' AND excluded.inferred_confidence <> 'none' THEN excluded.inferred_confidence
           ELSE line_threads.inferred_confidence
         END,
@@ -2097,6 +2150,13 @@ export default {
         const auth = authorizeAdminFromQuery(url);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await getSurveySummary(env));
+      }
+      if (url.pathname === '/api/survey/backfill-residence' && ['GET', 'POST'].includes(request.method)) {
+        const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+        const uid = String(body.uid || url.searchParams.get('uid') || '').trim();
+        if (!uid) return json({ success: false, error: 'MISSING_UID' }, 400);
+        if (!ADMIN_UIDS.has(uid)) return json({ success: false, error: 'FORBIDDEN' }, 403);
+        return json(await backfillSurveyResidenceAreas(env, body.limit || url.searchParams.get('limit') || 5000));
       }
       if (url.pathname === '/api/line-oa/backfill-signals' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
