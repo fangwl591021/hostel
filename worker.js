@@ -1124,7 +1124,7 @@ async function backfillSurveyResidenceAreas(env, limit = 5000) {
   if (!env.DB) throw new Error('D1 binding missing');
   const size = Math.max(1, Math.min(Number(limit || 5000) || 5000, 50000));
   const { results } = await env.DB.prepare(`
-    SELECT sp.line_user_id, sp.thread_id, sp.residence_area, sp.answers_json
+    SELECT sp.line_user_id, sp.thread_id, sp.residence_area, sp.gender, sp.answers_json
     FROM line_survey_profiles sp
     WHERE sp.thread_id <> ''
       AND (
@@ -1137,12 +1137,26 @@ async function backfillSurveyResidenceAreas(env, limit = 5000) {
   let updated = 0;
   for (const row of results || []) {
     let residenceArea = String(row.residence_area || '').trim();
+    let gender = String(row.gender || '').trim();
     if (!residenceArea) {
       try {
-        residenceArea = String(JSON.parse(row.answers_json || '{}').residence_area || '').trim();
+        const answers = JSON.parse(row.answers_json || '{}');
+        residenceArea = String(answers.residence_area || '').trim();
+        gender = String(gender || answers.gender || '').trim();
+      } catch (_err) {}
+    } else if (!gender) {
+      try {
+        gender = String(JSON.parse(row.answers_json || '{}').gender || '').trim();
       } catch (_err) {}
     }
     if (!residenceArea) continue;
+    await env.DB.prepare(`
+      UPDATE line_survey_profiles
+      SET residence_area = CASE WHEN residence_area = '' THEN ? ELSE residence_area END,
+          gender = CASE WHEN gender = '' THEN ? ELSE gender END,
+          updated_at = updated_at
+      WHERE line_user_id = ?
+    `).bind(residenceArea, gender, row.line_user_id).run();
     await env.DB.prepare(`
       UPDATE line_threads
       SET inferred_area = ?,
@@ -1158,6 +1172,131 @@ async function backfillSurveyResidenceAreas(env, limit = 5000) {
     updated += 1;
   }
   return { success: true, data: { scanned: (results || []).length, updated } };
+}
+
+function parseSurveyAnswers(row = {}) {
+  try {
+    return JSON.parse(row.answers_json || '{}') || {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function surveyRecordFromRow(row = {}) {
+  const answers = parseSurveyAnswers(row);
+  return {
+    lineUserId: row.line_user_id || '',
+    threadId: row.thread_id || '',
+    displayName: row.display_name || row.thread_display_name || '',
+    pictureUrl: row.picture_url || row.thread_picture_url || '',
+    completed: Number(row.completed || 0),
+    currentStep: row.current_step || '',
+    residenceArea: row.residence_area || answers.residence_area || '',
+    gender: row.gender || answers.gender || '',
+    tainanArea: row.area || answers.tainan_area || '',
+    interest: answers.interest || '',
+    partyType: row.party_type || answers.party_type || '',
+    lodgingType: row.lodging_type || answers.lodging_type || '',
+    pondInterest: answers.pond_interest || '',
+    visitTime: row.travel_time || answers.visit_time || '',
+    budget: row.budget || answers.budget || '',
+    monitorArea: row.inferred_area || '',
+    monitorGender: row.inferred_gender || '',
+    monitorConfidence: row.inferred_confidence || '',
+    tags: row.tags || '',
+    lastMessageAt: row.last_message_at || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+  };
+}
+
+async function listSurveyRecords(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const uid = String(filters.uid || '').trim();
+  if (!ADMIN_UIDS.has(uid)) return { success: false, error: 'FORBIDDEN' };
+  const search = String(filters.search || '').trim();
+  const residenceArea = String(filters.residenceArea || filters.residence_area || '').trim();
+  const gender = String(filters.gender || '').trim();
+  const completed = String(filters.completed ?? '').trim();
+  const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 5000));
+  const clauses = ['1 = 1'];
+  const values = [];
+  if (search) {
+    clauses.push(`(
+      sp.display_name LIKE ? OR lt.display_name LIKE ? OR sp.line_user_id LIKE ?
+      OR sp.answers_json LIKE ? OR lt.tags LIKE ?
+    )`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (residenceArea) {
+    clauses.push(`COALESCE(NULLIF(sp.residence_area, ''), json_extract(sp.answers_json, '$.residence_area'), '') = ?`);
+    values.push(residenceArea);
+  }
+  if (gender) {
+    clauses.push(`COALESCE(NULLIF(sp.gender, ''), json_extract(sp.answers_json, '$.gender'), '') = ?`);
+    values.push(gender);
+  }
+  if (completed !== '') {
+    clauses.push('sp.completed = ?');
+    values.push(Number(completed) ? 1 : 0);
+  }
+  const { results } = await env.DB.prepare(`
+    SELECT
+      sp.*,
+      lt.display_name AS thread_display_name,
+      lt.picture_url AS thread_picture_url,
+      lt.inferred_area,
+      lt.inferred_gender,
+      lt.inferred_confidence,
+      lt.tags,
+      lt.last_message_at
+    FROM line_survey_profiles sp
+    LEFT JOIN line_threads lt ON lt.id = sp.thread_id
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY sp.updated_at DESC
+    LIMIT ?
+  `).bind(...values, limit).all();
+  return {
+    success: true,
+    data: {
+      generatedAt: new Date().toISOString(),
+      count: (results || []).length,
+      records: (results || []).map(surveyRecordFromRow),
+    },
+  };
+}
+
+function csvCell(value = '') {
+  const text = String(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+async function exportSurveyRecordsCsv(env, filters = {}) {
+  const result = await listSurveyRecords(env, { ...filters, limit: filters.limit || 5000 });
+  if (!result.success) return result;
+  const headers = [
+    ['displayName', '姓名'],
+    ['lineUserId', 'LINE UID'],
+    ['residenceArea', '居住地區'],
+    ['gender', '性別'],
+    ['tainanArea', '想了解臺南區域'],
+    ['interest', '想了解資訊'],
+    ['partyType', '同行型態'],
+    ['lodgingType', '住宿偏好'],
+    ['pondInterest', '埤塘興趣'],
+    ['visitTime', '參考時間'],
+    ['budget', '預算'],
+    ['completed', '完成'],
+    ['monitorArea', '監控地區'],
+    ['monitorConfidence', '地區來源'],
+    ['tags', '標籤'],
+    ['updatedAt', '更新時間'],
+  ];
+  const lines = [
+    headers.map(([, label]) => csvCell(label)).join(','),
+    ...result.data.records.map(record => headers.map(([key]) => csvCell(record[key])).join(',')),
+  ];
+  return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
 }
 
 function formatPostbackText(event = {}, fallback = '') {
@@ -2117,6 +2256,9 @@ export default {
       if ((url.pathname === '/broadcast' || url.pathname === '/line-broadcast.html') && request.method === 'GET') {
         return serveGithubHtml('line-broadcast.html');
       }
+      if ((url.pathname === '/crm' || url.pathname === '/survey-crm' || url.pathname === '/line-survey-crm.html') && request.method === 'GET') {
+        return serveGithubHtml('line-survey-crm.html');
+      }
       if (url.pathname === '/assets/survey-opening-sticker.png' && request.method === 'GET') {
         return serveGithubAsset('survey-opening-sticker.png', 'image/png');
       }
@@ -2150,6 +2292,26 @@ export default {
         const auth = authorizeAdminFromQuery(url);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await getSurveySummary(env));
+      }
+      if (url.pathname === '/api/survey/records' && request.method === 'GET') {
+        const auth = authorizeAdminFromQuery(url);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await listSurveyRecords(env, Object.fromEntries(url.searchParams.entries()));
+        return json(result, result.success ? 200 : 403);
+      }
+      if (url.pathname === '/api/survey/export.csv' && request.method === 'GET') {
+        const auth = authorizeAdminFromQuery(url);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await exportSurveyRecordsCsv(env, Object.fromEntries(url.searchParams.entries()));
+        if (!result.success) return json(result, 403);
+        return new Response(result.csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=UTF-8',
+            'Content-Disposition': 'attachment; filename="line-survey-crm.csv"',
+            'Cache-Control': 'no-store',
+            ...CORS,
+          },
+        });
       }
       if (url.pathname === '/api/survey/backfill-residence' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};

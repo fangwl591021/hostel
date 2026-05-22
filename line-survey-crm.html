@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>問卷 CRM</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, "Noto Sans TC", sans-serif; background:#eef3f8; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-900">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-black">問卷 CRM</h1>
+        <p class="text-sm text-slate-500 mt-1">查看、回溯與下載 LINE 問卷受眾資料。</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/monitor" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">聊天室監控</a>
+        <a href="/broadcast" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">分時推播</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6 space-y-5">
+    <section class="bg-white border border-slate-200 rounded-2xl p-5">
+      <div class="grid grid-cols-6 gap-3 items-end">
+        <label class="block text-sm font-bold text-slate-600 col-span-2">管理員 UID
+          <input id="uid" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="Ue7a07...">
+        </label>
+        <label class="block text-sm font-bold text-slate-600">性別
+          <select id="gender" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+            <option value="">不限</option>
+            <option value="女性">女性</option>
+            <option value="男性">男性</option>
+            <option value="其他/不便透露">其他/不便透露</option>
+          </select>
+        </label>
+        <label class="block text-sm font-bold text-slate-600">居住地區
+          <select id="residence-area" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+            <option value="">不限</option>
+            <option value="臺南市">臺南市</option>
+            <option value="高雄/屏東">高雄/屏東</option>
+            <option value="嘉義/雲林">嘉義/雲林</option>
+            <option value="中彰投">中彰投</option>
+            <option value="北北基桃">北北基桃</option>
+            <option value="其他地區">其他地區</option>
+          </select>
+        </label>
+        <label class="block text-sm font-bold text-slate-600">完成狀態
+          <select id="completed" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+            <option value="">不限</option>
+            <option value="1">已完成</option>
+            <option value="0">未完成</option>
+          </select>
+        </label>
+        <label class="block text-sm font-bold text-slate-600">筆數
+          <input id="limit" type="number" value="500" min="1" max="5000" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+        </label>
+        <label class="block text-sm font-bold text-slate-600 col-span-2">搜尋
+          <input id="search" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="姓名、UID、標籤、答案">
+        </label>
+        <div class="col-span-4 flex flex-wrap gap-2">
+          <button id="load" type="button" class="rounded-xl bg-slate-900 text-white px-5 py-3 font-bold">載入 CRM</button>
+          <button id="backfill" type="button" class="rounded-xl bg-emerald-500 text-white px-5 py-3 font-bold">回溯修正居住地區</button>
+          <button id="download" type="button" class="rounded-xl border border-slate-300 px-5 py-3 font-bold">下載 CSV</button>
+          <span id="status" class="px-3 py-3 text-sm text-slate-500"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-4 gap-3">
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">總筆數</p><b id="count" class="text-3xl">0</b></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">女性</p><b id="female" class="text-3xl">0</b></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">男性</p><b id="male" class="text-3xl">0</b></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">已完成</p><b id="done" class="text-3xl">0</b></div>
+    </section>
+
+    <section class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">姓名</th>
+              <th class="text-left px-4 py-3">居住地區</th>
+              <th class="text-left px-4 py-3">性別</th>
+              <th class="text-left px-4 py-3">想了解區域</th>
+              <th class="text-left px-4 py-3">同行</th>
+              <th class="text-left px-4 py-3">住宿</th>
+              <th class="text-left px-4 py-3">預算</th>
+              <th class="text-left px-4 py-3">監控地區</th>
+              <th class="text-left px-4 py-3">更新</th>
+            </tr>
+          </thead>
+          <tbody id="rows" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const el = id => document.getElementById(id);
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const params = () => {
+      const uid = el('uid').value.trim();
+      if (!uid) throw new Error('請輸入管理員 UID');
+      const p = new URLSearchParams({ uid, limit: el('limit').value || '500' });
+      if (el('search').value.trim()) p.set('search', el('search').value.trim());
+      if (el('gender').value) p.set('gender', el('gender').value);
+      if (el('residence-area').value) p.set('residenceArea', el('residence-area').value);
+      if (el('completed').value !== '') p.set('completed', el('completed').value);
+      return p;
+    };
+    function setStatus(text) { el('status').textContent = text || ''; }
+    function render(records = []) {
+      el('count').textContent = records.length;
+      el('female').textContent = records.filter(r => r.gender === '女性').length;
+      el('male').textContent = records.filter(r => r.gender === '男性').length;
+      el('done').textContent = records.filter(r => Number(r.completed)).length;
+      el('rows').innerHTML = records.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3"><b>${escapeHtml(r.displayName || '訪客')}</b><br><span class="text-xs text-slate-400">${escapeHtml(r.lineUserId)}</span></td>
+          <td class="px-4 py-3">${escapeHtml(r.residenceArea || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.gender || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.tainanArea || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.partyType || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.lodgingType || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.budget || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.monitorArea || '-')}<br><span class="text-xs text-slate-400">${escapeHtml(r.monitorConfidence || '')}</span></td>
+          <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.updatedAt || '').replace('T', ' ').slice(0, 16))}</td>
+        </tr>
+      `).join('');
+    }
+    async function load() {
+      setStatus('載入中...');
+      const res = await fetch(`/api/survey/records?${params()}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '載入失敗');
+      render(data.data.records || []);
+      setStatus(`已載入 ${data.data.count} 筆`);
+    }
+    el('load').addEventListener('click', () => load().catch(err => setStatus(err.message)));
+    el('backfill').addEventListener('click', async () => {
+      try {
+        setStatus('回溯中...');
+        const uid = el('uid').value.trim();
+        if (!uid) throw new Error('請輸入管理員 UID');
+        const res = await fetch(`/api/survey/backfill-residence?uid=${encodeURIComponent(uid)}&limit=5000`);
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || '回溯失敗');
+        setStatus(`回溯完成：${data.data.updated} 筆`);
+        await load();
+      } catch (err) {
+        setStatus(err.message);
+      }
+    });
+    el('download').addEventListener('click', () => {
+      try {
+        location.href = `/api/survey/export.csv?${params()}`;
+      } catch (err) {
+        setStatus(err.message);
+      }
+    });
+  </script>
+</body>
+</html>
