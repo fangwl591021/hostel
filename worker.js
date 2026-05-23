@@ -1451,6 +1451,127 @@ async function exportSurveyRecordsCsv(env, filters = {}) {
   return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
 }
 
+async function ensureCrmCustomersTable(env) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS crm_customers (
+      member_id TEXT PRIMARY KEY,
+      line_user_id TEXT NOT NULL DEFAULT '',
+      customer_name TEXT NOT NULL DEFAULT '',
+      gender TEXT NOT NULL DEFAULT '',
+      birthday TEXT NOT NULL DEFAULT '',
+      residence_area TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      credit_balance REAL,
+      claimed_at TEXT NOT NULL DEFAULT '',
+      source_file TEXT NOT NULL DEFAULT '',
+      imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_customers_phone ON crm_customers(phone)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_customers_residence ON crm_customers(residence_area)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_customers_gender ON crm_customers(gender)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_customers_claimed ON crm_customers(claimed_at)`).run();
+}
+
+function crmCustomerFromRow(row = {}) {
+  return {
+    memberId: row.member_id || '',
+    lineUserId: row.line_user_id || '',
+    name: row.customer_name || '',
+    gender: row.gender || '',
+    birthday: row.birthday || '',
+    residenceArea: row.residence_area || '',
+    phone: row.phone || '',
+    creditBalance: row.credit_balance ?? '',
+    claimedAt: row.claimed_at || '',
+    sourceFile: row.source_file || '',
+    updatedAt: row.updated_at || '',
+  };
+}
+
+async function listCrmCustomers(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureCrmCustomersTable(env);
+  const search = String(filters.search || '').trim();
+  const gender = String(filters.gender || '').trim();
+  const residenceArea = String(filters.residenceArea || filters.residence_area || '').trim();
+  const claimed = String(filters.claimed ?? '').trim();
+  const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 10000));
+  const clauses = ['1 = 1'];
+  const values = [];
+  if (search) {
+    clauses.push(`(
+      member_id LIKE ? OR line_user_id LIKE ? OR customer_name LIKE ?
+      OR phone LIKE ? OR residence_area LIKE ?
+    )`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (gender) {
+    clauses.push('gender = ?');
+    values.push(gender);
+  }
+  if (residenceArea) {
+    clauses.push('residence_area = ?');
+    values.push(residenceArea);
+  }
+  if (claimed === '1') clauses.push("claimed_at <> ''");
+  if (claimed === '0') clauses.push("claimed_at = ''");
+  const overview = await env.DB.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN claimed_at <> '' THEN 1 ELSE 0 END) AS claimed,
+      SUM(CASE WHEN phone <> '' THEN 1 ELSE 0 END) AS with_phone
+    FROM crm_customers
+  `).first();
+  const { results } = await env.DB.prepare(`
+    SELECT *
+    FROM crm_customers
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY
+      CASE WHEN claimed_at <> '' THEN 0 ELSE 1 END,
+      CAST(member_id AS INTEGER) ASC
+    LIMIT ?
+  `).bind(...values, limit).all();
+  return {
+    success: true,
+    data: {
+      generatedAt: new Date().toISOString(),
+      overview: {
+        total: Number(overview?.total || 0),
+        claimed: Number(overview?.claimed || 0),
+        withPhone: Number(overview?.with_phone || 0),
+      },
+      count: (results || []).length,
+      records: (results || []).map(crmCustomerFromRow),
+    },
+  };
+}
+
+async function exportCrmCustomersCsv(env, filters = {}) {
+  const result = await listCrmCustomers(env, { ...filters, limit: filters.limit || 10000 });
+  if (!result.success) return result;
+  const headers = [
+    ['memberId', '會員ID'],
+    ['lineUserId', 'LINE UID'],
+    ['name', '會員姓名'],
+    ['gender', '性別'],
+    ['birthday', '生日'],
+    ['residenceArea', '居住地區'],
+    ['phone', '手機'],
+    ['creditBalance', '購物金餘額'],
+    ['claimedAt', '領點時間'],
+    ['sourceFile', '來源檔案'],
+    ['updatedAt', '更新時間'],
+  ];
+  const lines = [
+    headers.map(([, label]) => csvCell(label)).join(','),
+    ...result.data.records.map(record => headers.map(([key]) => csvCell(record[key])).join(',')),
+  ];
+  return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
+}
+
 async function runHourlyMonitorSync(env, force = false) {
   if (!env.DB) throw new Error('D1 binding missing');
   await ensureAppSettingsTable(env);
@@ -2647,6 +2768,25 @@ export default {
           headers: {
             'Content-Type': 'text/csv; charset=UTF-8',
             'Content-Disposition': 'attachment; filename="line-survey-crm.csv"',
+            'Cache-Control': 'no-store',
+            ...CORS,
+          },
+        });
+      }
+      if (url.pathname === '/api/crm/customers' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await listCrmCustomers(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/crm/customers/export.csv' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await exportCrmCustomersCsv(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true });
+        if (!result.success) return json(result, 403);
+        return new Response(result.csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=UTF-8',
+            'Content-Disposition': 'attachment; filename="crm-customers.csv"',
             'Cache-Control': 'no-store',
             ...CORS,
           },

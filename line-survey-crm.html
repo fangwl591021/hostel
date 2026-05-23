@@ -149,6 +149,42 @@
         </table>
       </div>
     </section>
+
+    <section class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div class="p-5 border-b border-slate-200 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 class="text-2xl font-black">母站客戶名單</h2>
+          <p id="customer-overview" class="text-sm text-slate-500 mt-1">尚未載入</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <input id="customer-search" class="rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="姓名、會員ID、手機、地區">
+          <select id="customer-claimed" class="rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+            <option value="">領點不限</option>
+            <option value="1">已領點</option>
+            <option value="0">未領點</option>
+          </select>
+          <button id="load-customers" type="button" data-auth-action class="rounded-xl bg-sky-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">載入客戶名單</button>
+          <button id="download-customers" type="button" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載客戶 CSV</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">會員ID</th>
+              <th class="text-left px-4 py-3">姓名</th>
+              <th class="text-left px-4 py-3">性別</th>
+              <th class="text-left px-4 py-3">生日</th>
+              <th class="text-left px-4 py-3">居住地區</th>
+              <th class="text-left px-4 py-3">手機</th>
+              <th class="text-left px-4 py-3">餘額</th>
+              <th class="text-left px-4 py-3">領點時間</th>
+            </tr>
+          </thead>
+          <tbody id="customer-rows" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -232,6 +268,38 @@
       renderBars('lodging-bars', countBy(records, 'lodgingType'), total, 'bg-teal-500');
       renderBars('budget-bars', countBy(records, 'budget'), total, 'bg-slate-700');
     }
+    function customerParams() {
+      const p = new URLSearchParams({ limit: '1000' });
+      if (el('customer-search').value.trim()) p.set('search', el('customer-search').value.trim());
+      if (el('customer-claimed').value !== '') p.set('claimed', el('customer-claimed').value);
+      return p;
+    }
+    function renderCustomers(payload = {}) {
+      const records = payload.records || [];
+      const overview = payload.overview || {};
+      el('customer-overview').textContent = `總名單 ${overview.total || 0} 位，已領點 ${overview.claimed || 0} 位，有手機 ${overview.withPhone || 0} 位，本次顯示 ${records.length} 位`;
+      el('customer-rows').innerHTML = records.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 font-bold">${escapeHtml(r.memberId || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.name || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.gender || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.birthday || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.residenceArea || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.phone || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.creditBalance || '')}</td>
+          <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.claimedAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
+        </tr>
+      `).join('');
+    }
+    async function loadCustomers() {
+      if (!authenticated) throw new Error('請先登入 CRM');
+      setStatus('載入客戶名單中...');
+      const res = await fetch(`/api/crm/customers?${customerParams()}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(friendlyError(data.error));
+      renderCustomers(data.data || {});
+      setStatus(`已載入客戶 ${data.data.count || 0} 筆`);
+    }
     async function login() {
       const password = el('password').value.trim();
       if (!password) throw new Error('請輸入管理員密碼');
@@ -284,6 +352,14 @@
       if (event.key === 'Enter') login().catch(err => setStatus(err.message));
     });
     el('load').addEventListener('click', () => load().catch(err => setStatus(err.message)));
+    el('load-customers').addEventListener('click', () => loadCustomers().catch(err => setStatus(err.message)));
+    el('download-customers').addEventListener('click', () => {
+      try {
+        location.href = `/api/crm/customers/export.csv?${customerParams()}`;
+      } catch (err) {
+        setStatus(err.message);
+      }
+    });
     el('backfill').addEventListener('click', async () => {
       try {
         setStatus('回溯中...');
