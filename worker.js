@@ -1572,6 +1572,119 @@ async function exportCrmCustomersCsv(env, filters = {}) {
   return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
 }
 
+async function ensureCrmPointEventsTable(env) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS crm_point_events (
+      event_row_id TEXT PRIMARY KEY,
+      uuid TEXT NOT NULL DEFAULT '',
+      member_id TEXT NOT NULL DEFAULT '',
+      shop_user_id TEXT NOT NULL DEFAULT '',
+      shop_id TEXT NOT NULL DEFAULT '',
+      event_id TEXT NOT NULL DEFAULT '',
+      event_name TEXT NOT NULL DEFAULT '',
+      event_content TEXT NOT NULL DEFAULT '',
+      point_type TEXT NOT NULL DEFAULT '',
+      get_point REAL,
+      point_balance REAL,
+      check_name TEXT NOT NULL DEFAULT '',
+      check_people_id TEXT NOT NULL DEFAULT '',
+      check_phone TEXT NOT NULL DEFAULT '',
+      room_number TEXT NOT NULL DEFAULT '',
+      sub_shop_name TEXT NOT NULL DEFAULT '',
+      child_shop_attribute TEXT NOT NULL DEFAULT '',
+      sub_shop_area TEXT NOT NULL DEFAULT '',
+      child_shop_ip TEXT NOT NULL DEFAULT '',
+      child_shop_remark TEXT NOT NULL DEFAULT '',
+      event_period TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      out_at TEXT NOT NULL DEFAULT '',
+      source_file TEXT NOT NULL DEFAULT '',
+      imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_point_events_member ON crm_point_events(member_id)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_point_events_event ON crm_point_events(event_name)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_point_events_shop ON crm_point_events(sub_shop_name)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_point_events_created ON crm_point_events(created_at)`).run();
+}
+
+function crmPointEventFromRow(row = {}) {
+  return {
+    eventRowId: row.event_row_id || '',
+    memberId: row.member_id || '',
+    customerName: row.customer_name || '',
+    eventName: row.event_name || '',
+    eventContent: row.event_content || '',
+    pointType: row.point_type || '',
+    getPoint: row.get_point ?? '',
+    pointBalance: row.point_balance ?? '',
+    checkName: row.check_name || '',
+    checkPhone: row.check_phone || '',
+    roomNumber: row.room_number || '',
+    subShopName: row.sub_shop_name || '',
+    subShopArea: row.sub_shop_area || '',
+    createdAt: row.created_at || '',
+    outAt: row.out_at || '',
+  };
+}
+
+async function listCrmPointEvents(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureCrmPointEventsTable(env);
+  const search = String(filters.search || '').trim();
+  const eventName = String(filters.eventName || filters.event_name || '').trim();
+  const memberId = String(filters.memberId || filters.member_id || '').trim();
+  const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 10000));
+  const clauses = ['1 = 1'];
+  const values = [];
+  if (search) {
+    clauses.push(`(
+      pe.member_id LIKE ? OR c.customer_name LIKE ? OR pe.event_name LIKE ?
+      OR pe.check_name LIKE ? OR pe.check_phone LIKE ? OR pe.sub_shop_name LIKE ?
+    )`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (eventName) {
+    clauses.push('pe.event_name = ?');
+    values.push(eventName);
+  }
+  if (memberId) {
+    clauses.push('pe.member_id = ?');
+    values.push(memberId);
+  }
+  const overview = await env.DB.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN event_name = '住房扣抵' THEN 1 ELSE 0 END) AS stays,
+      SUM(CASE WHEN event_name LIKE '%註冊贈點%' THEN 1 ELSE 0 END) AS registrations,
+      SUM(COALESCE(get_point, 0)) AS point_sum
+    FROM crm_point_events
+  `).first();
+  const { results } = await env.DB.prepare(`
+    SELECT pe.*, c.customer_name
+    FROM crm_point_events pe
+    LEFT JOIN crm_customers c ON c.member_id = pe.member_id
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY pe.created_at DESC, CAST(pe.event_row_id AS INTEGER) DESC
+    LIMIT ?
+  `).bind(...values, limit).all();
+  return {
+    success: true,
+    data: {
+      overview: {
+        total: Number(overview?.total || 0),
+        stays: Number(overview?.stays || 0),
+        registrations: Number(overview?.registrations || 0),
+        pointSum: Number(overview?.point_sum || 0),
+      },
+      count: (results || []).length,
+      records: (results || []).map(crmPointEventFromRow),
+    },
+  };
+}
+
 async function runHourlyMonitorSync(env, force = false) {
   if (!env.DB) throw new Error('D1 binding missing');
   await ensureAppSettingsTable(env);
@@ -2791,6 +2904,11 @@ export default {
             ...CORS,
           },
         });
+      }
+      if (url.pathname === '/api/crm/point-events' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await listCrmPointEvents(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
       }
       if (url.pathname === '/api/survey/backfill-residence' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};

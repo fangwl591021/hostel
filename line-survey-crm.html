@@ -185,6 +185,43 @@
         </table>
       </div>
     </section>
+
+    <section class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div class="p-5 border-b border-slate-200 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 class="text-2xl font-black">點數與入住明細</h2>
+          <p id="point-overview" class="text-sm text-slate-500 mt-1">尚未載入</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <input id="point-search" class="rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="會員ID、姓名、入住者、旅宿">
+          <select id="point-event" class="rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+            <option value="">事件不限</option>
+            <option value="註冊贈點(1)">註冊贈點</option>
+            <option value="住房扣抵">住房扣抵</option>
+            <option value="德元埤打卡(1)">德元埤打卡</option>
+            <option value="虎頭埤打卡(1)">虎頭埤打卡</option>
+          </select>
+          <button id="load-points" type="button" data-auth-action class="rounded-xl bg-violet-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">載入明細</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">會員</th>
+              <th class="text-left px-4 py-3">事件</th>
+              <th class="text-left px-4 py-3">點數</th>
+              <th class="text-left px-4 py-3">入住者</th>
+              <th class="text-left px-4 py-3">手機</th>
+              <th class="text-left px-4 py-3">旅宿</th>
+              <th class="text-left px-4 py-3">區域/房號</th>
+              <th class="text-left px-4 py-3">時間</th>
+            </tr>
+          </thead>
+          <tbody id="point-rows" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -300,6 +337,38 @@
       renderCustomers(data.data || {});
       setStatus(`已載入客戶 ${data.data.count || 0} 筆`);
     }
+    function pointParams() {
+      const p = new URLSearchParams({ limit: '1000' });
+      if (el('point-search').value.trim()) p.set('search', el('point-search').value.trim());
+      if (el('point-event').value) p.set('eventName', el('point-event').value);
+      return p;
+    }
+    function renderPoints(payload = {}) {
+      const records = payload.records || [];
+      const overview = payload.overview || {};
+      el('point-overview').textContent = `總明細 ${overview.total || 0} 筆，住房扣抵 ${overview.stays || 0} 筆，註冊贈點 ${overview.registrations || 0} 筆，點數合計 ${overview.pointSum || 0}`;
+      el('point-rows').innerHTML = records.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3"><b>${escapeHtml(r.customerName || '-')}</b><br><span class="text-xs text-slate-400">${escapeHtml(r.memberId || '')}</span></td>
+          <td class="px-4 py-3">${escapeHtml(r.eventName || '-')}<br><span class="text-xs text-slate-400">${escapeHtml(r.eventContent || '')}</span></td>
+          <td class="px-4 py-3 font-bold">${escapeHtml(r.getPoint || '')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.checkName || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.checkPhone || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.subShopName || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.subShopArea || '-')}<br><span class="text-xs text-slate-400">${escapeHtml(r.roomNumber || '')}</span></td>
+          <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.createdAt || '').replace('T', ' ').slice(0, 19))}<br><span class="text-xs text-slate-400">${escapeHtml((r.outAt || '').replace('T', ' ').slice(0, 19))}</span></td>
+        </tr>
+      `).join('');
+    }
+    async function loadPoints() {
+      if (!authenticated) throw new Error('請先登入 CRM');
+      setStatus('載入點數明細中...');
+      const res = await fetch(`/api/crm/point-events?${pointParams()}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(friendlyError(data.error));
+      renderPoints(data.data || {});
+      setStatus(`已載入明細 ${data.data.count || 0} 筆`);
+    }
     async function login() {
       const password = el('password').value.trim();
       if (!password) throw new Error('請輸入管理員密碼');
@@ -353,6 +422,7 @@
     });
     el('load').addEventListener('click', () => load().catch(err => setStatus(err.message)));
     el('load-customers').addEventListener('click', () => loadCustomers().catch(err => setStatus(err.message)));
+    el('load-points').addEventListener('click', () => loadPoints().catch(err => setStatus(err.message)));
     el('download-customers').addEventListener('click', () => {
       try {
         location.href = `/api/crm/customers/export.csv?${customerParams()}`;
