@@ -11,6 +11,7 @@ const ADMIN_UIDS = new Set([
 ]);
 const GITHUB_HTML_REF = 'main';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
+const TAINAN_TOURISM_NEWS_URL = 'https://www.twtainan.net/zh-tw/event/news/';
 const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TRIGGER_ALIASES = [
@@ -833,6 +834,54 @@ function surveyCompleteMessage(profile = {}) {
   return { type: 'text', text: lines.join('\n') };
 }
 
+function recentTainanEventsMessage() {
+  return {
+    type: 'flex',
+    altText: '臺南近期活動訊息',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          {
+            type: 'text',
+            text: '臺南近期活動訊息',
+            weight: 'bold',
+            size: 'lg',
+            wrap: true,
+          },
+          {
+            type: 'text',
+            text: '想順路安排景點、活動或最新旅遊消息，可以到台南旅遊網查看官方更新。',
+            size: 'sm',
+            color: '#475569',
+            wrap: true,
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#0f766e',
+            action: {
+              type: 'uri',
+              label: '查看最新活動',
+              uri: TAINAN_TOURISM_NEWS_URL,
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
 function googleMapSearchUrl(address = '') {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
@@ -1172,6 +1221,7 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   const messages = [surveyCompleteMessage({ ...updates, answers })];
   const recommendationMessage = buildAccommodationCarouselMessage(answers);
   if (recommendationMessage) messages.push(recommendationMessage);
+  messages.push(recentTainanEventsMessage());
   return {
     replyToken: event.replyToken,
     messages,
