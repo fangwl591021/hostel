@@ -222,6 +222,29 @@
         </table>
       </div>
     </section>
+
+    <section class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div class="p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-2xl font-black">活動連結點擊統計</h2>
+          <p id="click-overview" class="text-sm text-slate-500 mt-1">尚未載入</p>
+        </div>
+        <button id="load-clicks" type="button" data-auth-action class="rounded-xl bg-slate-900 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">載入點擊統計</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">使用者</th>
+              <th class="text-left px-4 py-3">LINE UID</th>
+              <th class="text-left px-4 py-3">點擊數</th>
+              <th class="text-left px-4 py-3">最後點擊</th>
+            </tr>
+          </thead>
+          <tbody id="click-rows" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -369,6 +392,28 @@
       renderPoints(data.data || {});
       setStatus(`已載入明細 ${data.data.count || 0} 筆`);
     }
+    function renderClicks(payload = {}) {
+      const overview = payload.overview || {};
+      const rows = payload.topUsers || [];
+      el('click-overview').textContent = `總點擊 ${overview.total || 0} 次，不重複使用者 ${overview.uniqueUsers || 0} 位，24 小時 ${overview.clicks24h || 0} 次，7 天 ${overview.clicks7d || 0} 次`;
+      el('click-rows').innerHTML = rows.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 font-bold">${escapeHtml(r.displayName || '-')}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">${escapeHtml(r.lineUserId || '-')}</td>
+          <td class="px-4 py-3">${escapeHtml(r.clicks || 0)}</td>
+          <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.lastClickedAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
+        </tr>
+      `).join('');
+    }
+    async function loadClicks() {
+      if (!authenticated) throw new Error('請先登入 CRM');
+      setStatus('載入點擊統計中...');
+      const res = await fetch('/api/crm/link-clicks?target=tainan_tourism_news');
+      const data = await res.json();
+      if (!data.success) throw new Error(friendlyError(data.error));
+      renderClicks(data.data || {});
+      setStatus('已載入活動點擊統計');
+    }
     async function login() {
       const password = el('password').value.trim();
       if (!password) throw new Error('請輸入管理員密碼');
@@ -423,6 +468,7 @@
     el('load').addEventListener('click', () => load().catch(err => setStatus(err.message)));
     el('load-customers').addEventListener('click', () => loadCustomers().catch(err => setStatus(err.message)));
     el('load-points').addEventListener('click', () => loadPoints().catch(err => setStatus(err.message)));
+    el('load-clicks').addEventListener('click', () => loadClicks().catch(err => setStatus(err.message)));
     el('download-customers').addEventListener('click', () => {
       try {
         location.href = `/api/crm/customers/export.csv?${customerParams()}`;

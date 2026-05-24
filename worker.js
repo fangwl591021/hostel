@@ -10,8 +10,10 @@ const ADMIN_UIDS = new Set([
   'Ue7a07fe317565389fbf4479172088f87',
 ]);
 const GITHUB_HTML_REF = 'main';
+const WORKER_PUBLIC_URL = 'https://hotel.fangwl591021.workers.dev';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
 const TAINAN_TOURISM_NEWS_URL = 'https://www.twtainan.net/zh-tw/event/news/';
+const TAINAN_TOURISM_NEWS_TRACK_TARGET = 'tainan_tourism_news';
 const POINTS_SURVEY_OPENING_IMAGE_URL = 'https://s3.us-west-1.wasabisys.com/aitw/2026/05/6446d860dbbfe540e9e2cbab5f98f1e3.png';
 const POINTS_SURVEY_TRIGGER = '住宿點數';
 const POINTS_SURVEY_TRIGGER_ALIASES = [
@@ -834,7 +836,15 @@ function surveyCompleteMessage(profile = {}) {
   return { type: 'text', text: lines.join('\n') };
 }
 
-function recentTainanEventsMessage() {
+function trackingUrl(path, params = {}) {
+  const url = new URL(path, WORKER_PUBLIC_URL);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value) !== '') url.searchParams.set(key, String(value));
+  });
+  return url.toString();
+}
+
+function recentTainanEventsMessage(userId = '') {
   return {
     type: 'flex',
     altText: '臺南近期活動訊息',
@@ -873,7 +883,7 @@ function recentTainanEventsMessage() {
             action: {
               type: 'uri',
               label: '查看最新活動',
-              uri: TAINAN_TOURISM_NEWS_URL,
+              uri: trackingUrl('/r/tainan-events', { uid: userId, source: 'survey_complete' }),
             },
           },
         ],
@@ -1221,7 +1231,7 @@ async function continuePointsSurvey(env, event = {}, profile = null) {
   const messages = [surveyCompleteMessage({ ...updates, answers })];
   const recommendationMessage = buildAccommodationCarouselMessage(answers);
   if (recommendationMessage) messages.push(recommendationMessage);
-  messages.push(recentTainanEventsMessage());
+  messages.push(recentTainanEventsMessage(userId));
   return {
     replyToken: event.replyToken,
     messages,
@@ -1731,6 +1741,88 @@ async function listCrmPointEvents(env, filters = {}) {
       },
       count: (results || []).length,
       records: (results || []).map(crmPointEventFromRow),
+    },
+  };
+}
+
+async function ensureCrmLinkClicksTable(env) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS crm_link_clicks (
+      id TEXT PRIMARY KEY,
+      target TEXT NOT NULL DEFAULT '',
+      line_user_id TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
+      referer TEXT NOT NULL DEFAULT '',
+      clicked_at TEXT NOT NULL DEFAULT ''
+    )
+  `).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_link_clicks_target ON crm_link_clicks(target, clicked_at)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_crm_link_clicks_user ON crm_link_clicks(line_user_id)`).run();
+}
+
+async function recordLinkClick(env, request, target, options = {}) {
+  if (!env.DB) return;
+  await ensureCrmLinkClicksTable(env);
+  const now = new Date().toISOString();
+  await env.DB.prepare(`
+    INSERT INTO crm_link_clicks (
+      id, target, line_user_id, source, user_agent, referer, clicked_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    crypto.randomUUID(),
+    target,
+    String(options.lineUserId || '').trim(),
+    String(options.source || '').trim(),
+    String(request.headers.get('user-agent') || '').slice(0, 500),
+    String(request.headers.get('referer') || '').slice(0, 500),
+    now
+  ).run();
+}
+
+async function getLinkClickStats(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureCrmLinkClicksTable(env);
+  const target = String(filters.target || TAINAN_TOURISM_NEWS_TRACK_TARGET).trim();
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const overview = await env.DB.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      COUNT(DISTINCT NULLIF(line_user_id, '')) AS unique_users,
+      SUM(CASE WHEN clicked_at >= ? THEN 1 ELSE 0 END) AS clicks_24h,
+      SUM(CASE WHEN clicked_at >= ? THEN 1 ELSE 0 END) AS clicks_7d
+    FROM crm_link_clicks
+    WHERE target = ?
+  `).bind(since24h, since7d, target).first();
+  const { results } = await env.DB.prepare(`
+    SELECT lc.line_user_id, COALESCE(sp.display_name, lt.display_name, '') AS display_name,
+           COUNT(*) AS clicks, MAX(lc.clicked_at) AS last_clicked_at
+    FROM crm_link_clicks lc
+    LEFT JOIN line_survey_profiles sp ON sp.line_user_id = lc.line_user_id
+    LEFT JOIN line_threads lt ON lt.source_user_id = lc.line_user_id
+    WHERE lc.target = ?
+    GROUP BY lc.line_user_id
+    ORDER BY clicks DESC, last_clicked_at DESC
+    LIMIT 20
+  `).bind(target).all();
+  return {
+    success: true,
+    data: {
+      target,
+      overview: {
+        total: Number(overview?.total || 0),
+        uniqueUsers: Number(overview?.unique_users || 0),
+        clicks24h: Number(overview?.clicks_24h || 0),
+        clicks7d: Number(overview?.clicks_7d || 0),
+      },
+      topUsers: (results || []).map(row => ({
+        lineUserId: row.line_user_id || '',
+        displayName: row.display_name || '',
+        clicks: Number(row.clicks || 0),
+        lastClickedAt: row.last_clicked_at || '',
+      })),
     },
   };
 }
@@ -2882,6 +2974,13 @@ export default {
       if ((url.pathname === '/crm' || url.pathname === '/survey-crm' || url.pathname === '/line-survey-crm.html') && request.method === 'GET') {
         return serveGithubHtml('line-survey-crm.html');
       }
+      if (url.pathname === '/r/tainan-events' && request.method === 'GET') {
+        await recordLinkClick(env, request, TAINAN_TOURISM_NEWS_TRACK_TARGET, {
+          lineUserId: url.searchParams.get('uid') || '',
+          source: url.searchParams.get('source') || '',
+        });
+        return Response.redirect(TAINAN_TOURISM_NEWS_URL, 302);
+      }
       if (url.pathname === '/assets/survey-opening-sticker.png' && request.method === 'GET') {
         return serveGithubAsset('survey-opening-sticker.png', 'image/png');
       }
@@ -2959,6 +3058,11 @@ export default {
         const auth = await authorizeAdminFromRequest(request, url, env);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await listCrmPointEvents(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/crm/link-clicks' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await getLinkClickStats(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
       }
       if (url.pathname === '/api/survey/backfill-residence' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
