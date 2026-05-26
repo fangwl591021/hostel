@@ -98,6 +98,27 @@
       </div>
     </section>
 
+    <section class="bg-white border border-slate-200 rounded-2xl p-5">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-black">會員分享 / QR 名單</h2>
+          <p class="text-sm text-slate-500 mt-1">整理點過「會員QR碼」或「會員分享」的使用者，方便追蹤分享推廣行為。</p>
+        </div>
+        <div class="flex flex-wrap items-end gap-2">
+          <label class="block text-sm font-bold text-slate-600">類型
+            <select id="share-mode" class="mt-1 rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+              <option value="">全部</option>
+              <option value="qr">會員QR碼</option>
+              <option value="share">會員分享</option>
+            </select>
+          </label>
+          <input id="share-search" class="rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="姓名、UID、標籤">
+          <button id="load-share-qr" type="button" data-auth-action class="rounded-xl bg-cyan-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">載入分享名單</button>
+          <button id="download-share-qr" type="button" data-auth-action class="rounded-xl border border-cyan-300 text-cyan-700 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載分享名單</button>
+        </div>
+      </div>
+    </section>
+
     <section id="quick-results" hidden class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
       <div class="p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -423,6 +444,7 @@
       if (quickState.type === 'customers') return renderQuickCustomers();
       if (quickState.type === 'points') return renderQuickPoints();
       if (quickState.type === 'pushAudience') return renderQuickPushAudience();
+      if (quickState.type === 'shareQr') return renderQuickShareQr();
     }
     function renderQuickCustomers() {
       const records = quickState.records || [];
@@ -594,6 +616,66 @@
       `;
       bindQuickPager();
     }
+    function shareQrParams(limit = '10000') {
+      const p = new URLSearchParams({ limit });
+      if (el('share-mode').value) p.set('mode', el('share-mode').value);
+      if (el('share-search').value.trim()) p.set('search', el('share-search').value.trim());
+      return p;
+    }
+    function renderQuickShareQr() {
+      const records = quickState.records || [];
+      const overview = quickState.overview || {};
+      const pageCount = Math.max(1, Math.ceil(records.length / QUICK_PAGE_SIZE));
+      quickState.page = Math.min(Math.max(1, quickState.page), pageCount);
+      const pageRows = records.slice((quickState.page - 1) * QUICK_PAGE_SIZE, quickState.page * QUICK_PAGE_SIZE);
+      el('quick-results').hidden = false;
+      el('quick-title').textContent = '會員分享 / QR 名單';
+      el('quick-meta').textContent = `QR 使用者 ${overview.qrUsers || 0} 位、分享使用者 ${overview.shareUsers || 0} 位，總動作 ${overview.totalActions || 0} 次，本次載入 ${records.length} 位`;
+      el('quick-table').innerHTML = `
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">LINE UID</th>
+              <th class="text-left px-4 py-3">姓名</th>
+              <th class="text-left px-4 py-3">QR碼</th>
+              <th class="text-left px-4 py-3">會員分享</th>
+              <th class="text-left px-4 py-3">總次數</th>
+              <th class="text-left px-4 py-3">首次動作</th>
+              <th class="text-left px-4 py-3">最後動作</th>
+              <th class="text-left px-4 py-3">標籤 / 摘要</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            ${pageRows.map(r => `
+              <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 text-xs text-slate-500">${escapeHtml(r.lineUserId || '-')}</td>
+                <td class="px-4 py-3 font-bold">${escapeHtml(r.displayName || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.qrClicks || 0)}</td>
+                <td class="px-4 py-3">${escapeHtml(r.shareClicks || 0)}</td>
+                <td class="px-4 py-3 font-bold">${escapeHtml(r.totalActions || 0)}</td>
+                <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.firstActionAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
+                <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.lastActionAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
+                <td class="px-4 py-3 max-w-[380px] text-xs text-slate-500">${escapeHtml([r.tags, r.latestSummary].filter(Boolean).join(' / ') || '-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ${quickPagerHtml(quickState.page, pageCount, records.length)}
+      `;
+      bindQuickPager();
+    }
+    async function loadShareQrList() {
+      if (!authenticated) throw new Error('請先登入 CRM');
+      setStatus('載入會員分享 / QR 名單中...');
+      const res = await fetch(`/api/crm/share-qr-actions?${shareQrParams('10000')}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(friendlyError(data.error));
+      const payload = data.data || {};
+      quickState = { type: 'shareQr', page: 1, records: payload.records || [], overview: payload.overview || {} };
+      renderQuickShareQr();
+      setStatus(`已載入分享 / QR 名單 ${payload.count || 0} 筆`);
+      document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     async function loadPushAudienceList() {
       if (!authenticated) throw new Error('請先登入 CRM');
       setStatus('產生未扣點推播名單中...');
@@ -709,6 +791,7 @@
     el('load-customers').addEventListener('click', () => loadCustomers().catch(err => setStatus(err.message)));
     el('load-points').addEventListener('click', () => loadPoints().catch(err => setStatus(err.message)));
     el('load-clicks').addEventListener('click', () => loadClicks().catch(err => setStatus(err.message)));
+    el('load-share-qr').addEventListener('click', () => loadShareQrList().catch(err => setStatus(err.message)));
     el('quick-claimed').addEventListener('click', () => loadClaimedList().catch(err => setStatus(err.message)));
     el('quick-deducted').addEventListener('click', () => loadDeductedList().catch(err => setStatus(err.message)));
     el('quick-push-audience').addEventListener('click', () => loadPushAudienceList().catch(err => setStatus(err.message)));
@@ -729,6 +812,9 @@
     });
     el('download-push-audience').addEventListener('click', () => {
       location.href = `/api/crm/audience/claimed-not-deducted/export.csv?${audienceParams('10000')}`;
+    });
+    el('download-share-qr').addEventListener('click', () => {
+      location.href = `/api/crm/share-qr-actions/export.csv?${shareQrParams('20000')}`;
     });
     el('download-customers').addEventListener('click', () => {
       try {

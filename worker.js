@@ -1777,6 +1777,115 @@ async function exportCrmClaimedNotDeductedAudienceCsv(env, filters = {}) {
   return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
 }
 
+function crmShareQrActionFromRow(row = {}) {
+  return {
+    lineUserId: row.line_user_id || '',
+    displayName: row.display_name || '',
+    qrClicks: Number(row.qr_clicks || 0),
+    shareClicks: Number(row.share_clicks || 0),
+    totalActions: Number(row.total_actions || 0),
+    firstActionAt: row.first_action_at || '',
+    lastActionAt: row.last_action_at || '',
+    latestSummary: formatThreadSummary(row.latest_summary || ''),
+    tags: row.tags || '',
+  };
+}
+
+async function listCrmShareQrActions(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const mode = String(filters.mode || '').trim();
+  const search = String(filters.search || '').trim();
+  const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 20000));
+  const messageClause = mode === 'qr'
+    ? "lm.message_text = '會員QR碼'"
+    : mode === 'share'
+      ? "lm.message_text = '會員分享'"
+      : "lm.message_text IN ('會員QR碼', '會員分享')";
+  const where = [`${messageClause}`, "lm.sender_id <> ''"];
+  const values = [];
+  if (search) {
+    where.push(`(
+      lm.sender_id LIKE ? OR lm.sender_name LIKE ? OR lt.display_name LIKE ?
+      OR lt.tags LIKE ? OR lt.summary LIKE ?
+    )`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+
+  const overview = await env.DB.prepare(`
+    SELECT
+      COUNT(DISTINCT CASE WHEN message_text = '會員QR碼' THEN sender_id END) AS qr_users,
+      COUNT(DISTINCT CASE WHEN message_text = '會員分享' THEN sender_id END) AS share_users,
+      COUNT(DISTINCT sender_id) AS total_users,
+      SUM(CASE WHEN message_text = '會員QR碼' THEN 1 ELSE 0 END) AS qr_actions,
+      SUM(CASE WHEN message_text = '會員分享' THEN 1 ELSE 0 END) AS share_actions,
+      MIN(created_at) AS first_action_at,
+      MAX(created_at) AS last_action_at
+    FROM line_messages
+    WHERE message_text IN ('會員QR碼', '會員分享')
+      AND sender_id <> ''
+  `).first();
+
+  const { results } = await env.DB.prepare(`
+    SELECT
+      lm.sender_id AS line_user_id,
+      COALESCE(lt.display_name, lm.sender_name, '') AS display_name,
+      SUM(CASE WHEN lm.message_text = '會員QR碼' THEN 1 ELSE 0 END) AS qr_clicks,
+      SUM(CASE WHEN lm.message_text = '會員分享' THEN 1 ELSE 0 END) AS share_clicks,
+      COUNT(*) AS total_actions,
+      MIN(lm.created_at) AS first_action_at,
+      MAX(lm.created_at) AS last_action_at,
+      COALESCE(lt.summary, '') AS latest_summary,
+      COALESCE(lt.tags, '') AS tags
+    FROM line_messages lm
+    LEFT JOIN line_threads lt ON lt.source_user_id = lm.sender_id
+    WHERE ${where.join(' AND ')}
+    GROUP BY lm.sender_id
+    ORDER BY total_actions DESC, last_action_at DESC
+    LIMIT ?
+  `).bind(...values, limit).all();
+
+  return {
+    success: true,
+    data: {
+      generatedAt: new Date().toISOString(),
+      mode: mode || 'all',
+      overview: {
+        qrUsers: Number(overview?.qr_users || 0),
+        shareUsers: Number(overview?.share_users || 0),
+        totalUsers: Number(overview?.total_users || 0),
+        qrActions: Number(overview?.qr_actions || 0),
+        shareActions: Number(overview?.share_actions || 0),
+        totalActions: Number(overview?.qr_actions || 0) + Number(overview?.share_actions || 0),
+        firstActionAt: overview?.first_action_at || '',
+        lastActionAt: overview?.last_action_at || '',
+      },
+      count: (results || []).length,
+      records: (results || []).map(crmShareQrActionFromRow),
+    },
+  };
+}
+
+async function exportCrmShareQrActionsCsv(env, filters = {}) {
+  const result = await listCrmShareQrActions(env, { ...filters, limit: filters.limit || 20000 });
+  if (!result.success) return result;
+  const headers = [
+    ['lineUserId', 'LINE UID'],
+    ['displayName', '名稱'],
+    ['qrClicks', '會員QR碼次數'],
+    ['shareClicks', '會員分享次數'],
+    ['totalActions', '總次數'],
+    ['firstActionAt', '首次動作'],
+    ['lastActionAt', '最後動作'],
+    ['latestSummary', '最新訊息摘要'],
+    ['tags', '標籤'],
+  ];
+  const lines = [
+    headers.map(([, label]) => csvCell(label)).join(','),
+    ...result.data.records.map(record => headers.map(([key]) => csvCell(record[key])).join(',')),
+  ];
+  return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
+}
+
 async function ensureLinePointEventsTable(env) {
   if (!env.DB) throw new Error('D1 binding missing');
   await env.DB.prepare(`
@@ -3585,6 +3694,25 @@ export default {
           headers: {
             'Content-Type': 'text/csv; charset=UTF-8',
             'Content-Disposition': 'attachment; filename="claimed-not-deducted-audience.csv"',
+            'Cache-Control': 'no-store',
+            ...CORS,
+          },
+        });
+      }
+      if (url.pathname === '/api/crm/share-qr-actions' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await listCrmShareQrActions(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/crm/share-qr-actions/export.csv' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await exportCrmShareQrActionsCsv(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true });
+        if (!result.success) return json(result, 403);
+        return new Response(result.csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=UTF-8',
+            'Content-Disposition': 'attachment; filename="share-qr-actions.csv"',
             'Cache-Control': 'no-store',
             ...CORS,
           },
