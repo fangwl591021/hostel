@@ -1628,6 +1628,87 @@ async function exportCrmCustomersCsv(env, filters = {}) {
   return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
 }
 
+async function listCrmClaimedNotDeductedAudience(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureCrmCustomersTable(env);
+  await ensureCrmPointEventsTable(env);
+  const search = String(filters.search || '').trim();
+  const month = String(filters.month || filters.claimedMonth || filters.claimed_month || '').trim();
+  const pushableOnly = String(filters.pushable ?? '0').trim() === '1';
+  const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 10000));
+  const clauses = ["c.claimed_at <> ''"];
+  const values = [];
+  if (pushableOnly) clauses.push("c.line_user_id <> ''");
+  if (search) {
+    clauses.push(`(
+      c.member_id LIKE ? OR c.line_user_id LIKE ? OR c.customer_name LIKE ?
+      OR c.phone LIKE ? OR c.residence_area LIKE ?
+    )`);
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (/^\d{4}-\d{2}$/.test(month)) {
+    clauses.push("substr(replace(c.claimed_at, '/', '-'), 1, 7) = ?");
+    values.push(month);
+  }
+  clauses.push(`NOT EXISTS (
+    SELECT 1
+    FROM crm_point_events pe
+    WHERE pe.member_id = c.member_id
+      AND pe.event_name = '住房扣抵'
+  )`);
+
+  const overview = await env.DB.prepare(`
+    SELECT
+      COUNT(*) AS audience,
+      SUM(CASE WHEN c.line_user_id <> '' THEN 1 ELSE 0 END) AS pushable,
+      SUM(CASE WHEN c.phone <> '' THEN 1 ELSE 0 END) AS with_phone
+    FROM crm_customers c
+    WHERE ${clauses.join(' AND ')}
+  `).bind(...values).first();
+
+  const { results } = await env.DB.prepare(`
+    SELECT c.*
+    FROM crm_customers c
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY c.claimed_at DESC, CAST(c.member_id AS INTEGER) ASC
+    LIMIT ?
+  `).bind(...values, limit).all();
+
+  return {
+    success: true,
+    data: {
+      generatedAt: new Date().toISOString(),
+      overview: {
+        audience: Number(overview?.audience || 0),
+        pushable: Number(overview?.pushable || 0),
+        withPhone: Number(overview?.with_phone || 0),
+      },
+      count: (results || []).length,
+      records: (results || []).map(crmCustomerFromRow),
+    },
+  };
+}
+
+async function exportCrmClaimedNotDeductedAudienceCsv(env, filters = {}) {
+  const result = await listCrmClaimedNotDeductedAudience(env, { ...filters, limit: filters.limit || 10000 });
+  if (!result.success) return result;
+  const headers = [
+    ['lineUserId', 'LINE UID'],
+    ['memberId', '會員ID'],
+    ['name', '姓名'],
+    ['gender', '性別'],
+    ['residenceArea', '居住地區'],
+    ['phone', '手機'],
+    ['creditBalance', '點數餘額'],
+    ['claimedAt', '領點時間'],
+  ];
+  const lines = [
+    headers.map(([, label]) => csvCell(label)).join(','),
+    ...result.data.records.map(record => headers.map(([key]) => csvCell(record[key])).join(',')),
+  ];
+  return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
+}
+
 async function ensureCrmPointEventsTable(env) {
   if (!env.DB) throw new Error('D1 binding missing');
   await env.DB.prepare(`
@@ -3194,6 +3275,25 @@ export default {
           headers: {
             'Content-Type': 'text/csv; charset=UTF-8',
             'Content-Disposition': 'attachment; filename="crm-point-events.csv"',
+            'Cache-Control': 'no-store',
+            ...CORS,
+          },
+        });
+      }
+      if (url.pathname === '/api/crm/audience/claimed-not-deducted' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await listCrmClaimedNotDeductedAudience(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/crm/audience/claimed-not-deducted/export.csv' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await exportCrmClaimedNotDeductedAudienceCsv(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true });
+        if (!result.success) return json(result, 403);
+        return new Response(result.csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=UTF-8',
+            'Content-Disposition': 'attachment; filename="claimed-not-deducted-audience.csv"',
             'Cache-Control': 'no-store',
             ...CORS,
           },
