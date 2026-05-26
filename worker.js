@@ -771,7 +771,6 @@ function surveyQuestionMessage(stepIndex, prefix = '') {
 }
 
 function surveyOpeningMessage() {
-  const firstStep = POINTS_SURVEY_STEPS[0];
   return {
     type: 'flex',
     altText: '旅遊臺南住宿點數問卷',
@@ -800,21 +799,7 @@ function surveyOpeningMessage() {
           },
         ],
       },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        paddingAll: '5px',
-        contents: [
-          {
-            type: 'text',
-            text: firstStep.title,
-            align: 'center',
-            wrap: true,
-          },
-        ],
-      },
     },
-    quickReply: buildQuickReply(firstStep.options),
   };
 }
 
@@ -1119,7 +1104,7 @@ async function startPointsSurvey(env, event = {}) {
   await appendThreadSurveyTags(env, threadId, ['問卷:點數候補', '問卷:進行中']);
   return {
     replyToken: event.replyToken,
-    messages: [surveyOpeningMessage()],
+    messages: [surveyOpeningMessage(), surveyQuestionMessage(0)],
   };
 }
 
