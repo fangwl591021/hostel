@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>雲端知識庫</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, "Noto Sans TC", sans-serif; background:#eef3f8; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-900">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-black">雲端資料夾式知識庫</h1>
+        <p class="text-sm text-slate-500 mt-1">內容存放在雲端資料庫，後續新增與修改不用改程式碼。</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/monitor" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">監控頁</a>
+        <a href="/crm" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">CRM</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-6 space-y-5">
+    <section class="bg-white border border-slate-200 rounded-2xl p-5">
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="block text-sm font-bold text-slate-600 min-w-[260px] flex-1">管理員密碼
+          <input id="password" type="password" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="輸入密碼">
+        </label>
+        <button id="login" type="button" class="rounded-xl bg-emerald-500 text-white px-6 py-3 font-bold">登入</button>
+        <span id="status" class="px-3 py-3 text-sm text-slate-500">尚未登入</span>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-12 gap-5">
+      <aside class="col-span-3 bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div class="p-4 border-b border-slate-200">
+          <div class="flex gap-2">
+            <input id="folder-name" class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-emerald-500" placeholder="新資料夾">
+            <button id="save-folder" data-auth-action class="rounded-xl bg-slate-900 text-white px-4 py-2 font-bold disabled:bg-slate-300">新增</button>
+          </div>
+        </div>
+        <div id="folders" class="p-3 space-y-2"></div>
+      </aside>
+
+      <section class="col-span-4 bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div class="p-4 border-b border-slate-200 flex gap-2">
+          <input id="search" class="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-emerald-500" placeholder="搜尋標題、內容、標籤">
+          <button id="load" data-auth-action class="rounded-xl bg-emerald-500 text-white px-4 py-2 font-bold disabled:bg-slate-300">載入</button>
+        </div>
+        <div id="items" class="p-3 space-y-2 max-h-[68vh] overflow-y-auto"></div>
+      </section>
+
+      <section class="col-span-5 bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+        <input id="item-id" type="hidden">
+        <label class="block text-sm font-bold text-slate-600">標題
+          <input id="title" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="例如：點數規則、住宿推薦、常見問題">
+        </label>
+        <label class="block text-sm font-bold text-slate-600">來源連結
+          <input id="source-url" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="https://...">
+        </label>
+        <label class="block text-sm font-bold text-slate-600">標籤
+          <input id="tags" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="點數,旅宿,活動">
+        </label>
+        <label class="block text-sm font-bold text-slate-600">內容
+          <textarea id="content" rows="15" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500" placeholder="把知識內容貼在這裡。"></textarea>
+        </label>
+        <div class="flex gap-2">
+          <button id="new-item" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100">新文件</button>
+          <button id="save-item" data-auth-action class="rounded-xl bg-emerald-500 text-white px-5 py-3 font-bold disabled:bg-slate-300">儲存文件</button>
+          <button id="delete-item" data-auth-action class="rounded-xl bg-rose-50 text-rose-700 px-5 py-3 font-bold disabled:bg-slate-100">刪除</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    let authenticated = false;
+    let folders = [];
+    let items = [];
+    let activeFolder = '';
+    const el = id => document.getElementById(id);
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    function setStatus(text) { el('status').textContent = text || ''; }
+    function setAuthenticated(value) {
+      authenticated = !!value;
+      document.querySelectorAll('[data-auth-action]').forEach(button => { button.disabled = !authenticated; });
+    }
+    async function login() {
+      const password = el('password').value.trim();
+      if (!password) throw new Error('請輸入密碼');
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '登入失敗');
+      el('password').value = '';
+      setAuthenticated(true);
+      setStatus('已登入');
+      await loadKb();
+    }
+    function clearEditor() {
+      ['item-id', 'title', 'source-url', 'tags', 'content'].forEach(id => { el(id).value = ''; });
+    }
+    function editItem(item) {
+      el('item-id').value = item.id || '';
+      el('title').value = item.title || '';
+      el('source-url').value = item.sourceUrl || '';
+      el('tags').value = (item.tags || []).join(',');
+      el('content').value = item.content || '';
+    }
+    function renderFolders() {
+      const allClass = activeFolder === '' ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-700';
+      const rows = [`<button class="folder w-full text-left rounded-xl px-3 py-3 font-bold ${allClass}" data-id="">全部文件</button>`];
+      folders.forEach(folder => {
+        const cls = activeFolder === folder.id ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-700';
+        rows.push(`<button class="folder w-full text-left rounded-xl px-3 py-3 font-bold ${cls}" data-id="${folder.id}">${escapeHtml(folder.name)}</button>`);
+      });
+      el('folders').innerHTML = rows.join('');
+      document.querySelectorAll('.folder').forEach(button => button.addEventListener('click', () => {
+        activeFolder = button.dataset.id || '';
+        loadKb().catch(err => setStatus(err.message));
+      }));
+    }
+    function renderItems() {
+      if (!items.length) {
+        el('items').innerHTML = '<p class="rounded-xl bg-slate-50 p-4 text-sm text-slate-400">目前沒有文件</p>';
+        return;
+      }
+      el('items').innerHTML = items.map(item => `
+        <button class="item w-full text-left rounded-xl border border-slate-200 p-4 hover:border-emerald-400" data-id="${item.id}">
+          <b class="block">${escapeHtml(item.title)}</b>
+          <span class="block mt-1 text-xs text-slate-400">${escapeHtml((item.tags || []).join('、'))}</span>
+          <p class="mt-2 text-sm text-slate-500 line-clamp-2">${escapeHtml(item.content || '')}</p>
+        </button>
+      `).join('');
+      document.querySelectorAll('.item').forEach(button => button.addEventListener('click', () => {
+        const item = items.find(row => row.id === button.dataset.id);
+        if (item) editItem(item);
+      }));
+    }
+    async function loadKb() {
+      if (!authenticated) throw new Error('請先登入');
+      const params = new URLSearchParams();
+      if (activeFolder) params.set('folderId', activeFolder);
+      if (el('search').value.trim()) params.set('search', el('search').value.trim());
+      const res = await fetch(`/api/kb/tree?${params}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '載入失敗');
+      folders = data.data.folders || [];
+      items = data.data.items || [];
+      renderFolders();
+      renderItems();
+      setStatus(`已載入 ${items.length} 份文件`);
+    }
+    async function saveFolder() {
+      const name = el('folder-name').value.trim();
+      if (!name) throw new Error('請輸入資料夾名稱');
+      const res = await fetch('/api/kb/folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '儲存失敗');
+      el('folder-name').value = '';
+      await loadKb();
+    }
+    async function saveItem() {
+      const title = el('title').value.trim();
+      if (!title) throw new Error('請輸入標題');
+      const res = await fetch('/api/kb/item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: el('item-id').value,
+          folderId: activeFolder,
+          title,
+          sourceUrl: el('source-url').value.trim(),
+          tags: el('tags').value,
+          content: el('content').value,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '儲存失敗');
+      el('item-id').value = data.data.id;
+      await loadKb();
+    }
+    async function deleteItem() {
+      const id = el('item-id').value;
+      if (!id) return;
+      const res = await fetch('/api/kb/item/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '刪除失敗');
+      clearEditor();
+      await loadKb();
+    }
+    el('login').addEventListener('click', () => login().catch(err => setStatus(err.message)));
+    el('password').addEventListener('keydown', event => { if (event.key === 'Enter') login().catch(err => setStatus(err.message)); });
+    el('load').addEventListener('click', () => loadKb().catch(err => setStatus(err.message)));
+    el('save-folder').addEventListener('click', () => saveFolder().catch(err => setStatus(err.message)));
+    el('new-item').addEventListener('click', clearEditor);
+    el('save-item').addEventListener('click', () => saveItem().catch(err => setStatus(err.message)));
+    el('delete-item').addEventListener('click', () => deleteItem().catch(err => setStatus(err.message)));
+    fetch('/api/admin/session').then(r => r.json()).then(data => {
+      setAuthenticated(data.authenticated);
+      setStatus(data.authenticated ? '已登入' : '請先登入');
+      if (data.authenticated) loadKb().catch(err => setStatus(err.message));
+    }).catch(() => setAuthenticated(false));
+    setAuthenticated(false);
+  </script>
+</body>
+</html>

@@ -1827,6 +1827,91 @@ async function getLinkClickStats(env, filters = {}) {
   };
 }
 
+
+async function ensureKnowledgeBaseTables(env) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS kb_folders (
+      id TEXT PRIMARY KEY,
+      parent_id TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS kb_items (
+      id TEXT PRIMARY KEY,
+      folder_id TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_kb_folders_parent ON kb_folders(parent_id, sort_order)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_kb_items_folder ON kb_items(folder_id, updated_at)`).run();
+}
+
+function kbFolderFromRow(row = {}) {
+  return { id: row.id || '', parentId: row.parent_id || '', name: row.name || '', description: row.description || '', sortOrder: Number(row.sort_order || 0), updatedAt: row.updated_at || '' };
+}
+
+function kbItemFromRow(row = {}) {
+  return { id: row.id || '', folderId: row.folder_id || '', title: row.title || '', content: row.content || '', sourceUrl: row.source_url || '', tags: String(row.tags || '').split(',').map(v => v.trim()).filter(Boolean), status: row.status || 'active', updatedAt: row.updated_at || '' };
+}
+
+async function listKnowledgeBase(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureKnowledgeBaseTables(env);
+  const search = String(filters.search || '').trim();
+  const folderId = String(filters.folderId || filters.folder_id || '').trim();
+  const folderRows = await env.DB.prepare(`SELECT * FROM kb_folders ORDER BY parent_id ASC, sort_order ASC, name ASC`).all();
+  const clauses = ["status <> 'deleted'"];
+  const values = [];
+  if (folderId) { clauses.push('folder_id = ?'); values.push(folderId); }
+  if (search) { clauses.push('(title LIKE ? OR content LIKE ? OR tags LIKE ? OR source_url LIKE ?)'); values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`); }
+  const itemRows = await env.DB.prepare(`SELECT * FROM kb_items WHERE ${clauses.join(' AND ')} ORDER BY updated_at DESC LIMIT 300`).bind(...values).all();
+  return { success: true, data: { folders: (folderRows.results || []).map(kbFolderFromRow), items: (itemRows.results || []).map(kbItemFromRow) } };
+}
+
+async function saveKnowledgeFolder(env, body = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureKnowledgeBaseTables(env);
+  const id = String(body.id || crypto.randomUUID()).trim();
+  const name = String(body.name || '').trim();
+  if (!name) return { success: false, error: 'MISSING_FOLDER_NAME' };
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO kb_folders (id, parent_id, name, description, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET parent_id = excluded.parent_id, name = excluded.name, description = excluded.description, sort_order = excluded.sort_order, updated_at = excluded.updated_at`).bind(id, String(body.parentId || body.parent_id || '').trim(), name, String(body.description || '').trim(), Number(body.sortOrder || body.sort_order || 0) || 0, now, now).run();
+  return { success: true, data: { id } };
+}
+
+async function saveKnowledgeItem(env, body = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureKnowledgeBaseTables(env);
+  const id = String(body.id || crypto.randomUUID()).trim();
+  const title = String(body.title || '').trim();
+  if (!title) return { success: false, error: 'MISSING_TITLE' };
+  const tags = Array.isArray(body.tags) ? body.tags.map(v => String(v || '').trim()).filter(Boolean).join(',') : String(body.tags || '').split(',').map(v => v.trim()).filter(Boolean).join(',');
+  const now = new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO kb_items (id, folder_id, title, content, source_url, tags, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET folder_id = excluded.folder_id, title = excluded.title, content = excluded.content, source_url = excluded.source_url, tags = excluded.tags, status = excluded.status, updated_at = excluded.updated_at`).bind(id, String(body.folderId || body.folder_id || '').trim(), title, String(body.content || '').trim(), String(body.sourceUrl || body.source_url || '').trim(), tags, String(body.status || 'active').trim(), now, now).run();
+  return { success: true, data: { id } };
+}
+
+async function deleteKnowledgeItem(env, body = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureKnowledgeBaseTables(env);
+  const id = String(body.id || '').trim();
+  if (!id) return { success: false, error: 'MISSING_ID' };
+  await env.DB.prepare(`UPDATE kb_items SET status = 'deleted', updated_at = ? WHERE id = ?`).bind(new Date().toISOString(), id).run();
+  return { success: true, data: { id } };
+}
+
 async function runHourlyMonitorSync(env, force = false) {
   if (!env.DB) throw new Error('D1 binding missing');
   await ensureAppSettingsTable(env);
@@ -2974,6 +3059,9 @@ export default {
       if ((url.pathname === '/crm' || url.pathname === '/survey-crm' || url.pathname === '/line-survey-crm.html') && request.method === 'GET') {
         return serveGithubHtml('line-survey-crm.html');
       }
+      if ((url.pathname === '/kb' || url.pathname === '/knowledge-base' || url.pathname === '/knowledge-base.html') && request.method === 'GET') {
+        return serveGithubHtml('knowledge-base.html');
+      }
       if (url.pathname === '/r/tainan-events' && request.method === 'GET') {
         await recordLinkClick(env, request, TAINAN_TOURISM_NEWS_TRACK_TARGET, {
           lineUserId: url.searchParams.get('uid') || '',
@@ -3063,6 +3151,28 @@ export default {
         const auth = await authorizeAdminFromRequest(request, url, env);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await getLinkClickStats(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/kb/tree' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await listKnowledgeBase(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/kb/folder' && request.method === 'POST') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await saveKnowledgeFolder(env, await request.json().catch(() => ({})));
+        return json(result, result.success ? 200 : 400);
+      }
+      if (url.pathname === '/api/kb/item' && request.method === 'POST') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await saveKnowledgeItem(env, await request.json().catch(() => ({})));
+        return json(result, result.success ? 200 : 400);
+      }
+      if (url.pathname === '/api/kb/item/delete' && request.method === 'POST') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await deleteKnowledgeItem(env, await request.json().catch(() => ({}))));
       }
       if (url.pathname === '/api/survey/backfill-residence' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
