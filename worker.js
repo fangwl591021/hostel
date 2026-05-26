@@ -1745,6 +1745,32 @@ async function listCrmPointEvents(env, filters = {}) {
   };
 }
 
+async function exportCrmPointEventsCsv(env, filters = {}) {
+  const result = await listCrmPointEvents(env, { ...filters, limit: filters.limit || 10000 });
+  if (!result.success) return result;
+  const headers = [
+    ['memberId', '會員ID'],
+    ['customerName', '會員姓名'],
+    ['eventName', '事件'],
+    ['eventContent', '事件內容'],
+    ['pointType', '點數類型'],
+    ['getPoint', '點數'],
+    ['pointBalance', '點數餘額'],
+    ['checkName', '入住者'],
+    ['checkPhone', '入住者手機'],
+    ['subShopName', '旅宿'],
+    ['subShopArea', '旅宿地區'],
+    ['roomNumber', '房號'],
+    ['createdAt', '建立時間'],
+    ['outAt', '退房時間'],
+  ];
+  const lines = [
+    headers.map(([, label]) => csvCell(label)).join(','),
+    ...result.data.records.map(record => headers.map(([key]) => csvCell(record[key])).join(',')),
+  ];
+  return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
+}
+
 async function ensureCrmLinkClicksTable(env) {
   if (!env.DB) throw new Error('D1 binding missing');
   await env.DB.prepare(`
@@ -3149,6 +3175,19 @@ export default {
         const auth = await authorizeAdminFromRequest(request, url, env);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
         return json(await listCrmPointEvents(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/crm/point-events/export.csv' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await exportCrmPointEventsCsv(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true });
+        return new Response(result.csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=UTF-8',
+            'Content-Disposition': 'attachment; filename="crm-point-events.csv"',
+            'Cache-Control': 'no-store',
+            ...CORS,
+          },
+        });
       }
       if (url.pathname === '/api/crm/link-clicks' && request.method === 'GET') {
         const auth = await authorizeAdminFromRequest(request, url, env);

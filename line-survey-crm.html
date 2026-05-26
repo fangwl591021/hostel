@@ -77,6 +77,21 @@
       </div>
     </section>
 
+    <section class="bg-white border border-slate-200 rounded-2xl p-5">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-black">點數名單快查</h2>
+          <p class="text-sm text-slate-500 mt-1">直接查看已取點會員，以及已用住宿扣抵點數的名單。</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="quick-claimed" type="button" data-auth-action class="rounded-xl bg-sky-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已取點名單</button>
+          <button id="quick-deducted" type="button" data-auth-action class="rounded-xl bg-violet-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已扣點名單</button>
+          <button id="download-claimed" type="button" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載已取點</button>
+          <button id="download-deducted" type="button" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載已扣點</button>
+        </div>
+      </div>
+    </section>
+
     <section class="grid grid-cols-4 gap-3">
       <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">總筆數</p><b id="count" class="text-3xl">0</b><p id="summary-updated" class="mt-2 text-xs text-slate-400">尚未載入</p></div>
       <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">完成率</p><b id="completion-rate" class="text-3xl">0%</b><p id="done-detail" class="mt-2 text-xs text-slate-400">0 / 0</p></div>
@@ -392,6 +407,18 @@
       renderPoints(data.data || {});
       setStatus(`已載入明細 ${data.data.count || 0} 筆`);
     }
+    async function loadClaimedList() {
+      el('customer-claimed').value = '1';
+      el('customer-search').value = '';
+      await loadCustomers();
+      document.getElementById('customers').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    async function loadDeductedList() {
+      el('point-event').value = '住房扣抵';
+      el('point-search').value = '';
+      await loadPoints();
+      document.getElementById('point-events').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     function renderClicks(payload = {}) {
       const overview = payload.overview || {};
       const rows = payload.topUsers || [];
@@ -469,6 +496,16 @@
     el('load-customers').addEventListener('click', () => loadCustomers().catch(err => setStatus(err.message)));
     el('load-points').addEventListener('click', () => loadPoints().catch(err => setStatus(err.message)));
     el('load-clicks').addEventListener('click', () => loadClicks().catch(err => setStatus(err.message)));
+    el('quick-claimed').addEventListener('click', () => loadClaimedList().catch(err => setStatus(err.message)));
+    el('quick-deducted').addEventListener('click', () => loadDeductedList().catch(err => setStatus(err.message)));
+    el('download-claimed').addEventListener('click', () => {
+      el('customer-claimed').value = '1';
+      location.href = `/api/crm/customers/export.csv?${customerParams()}`;
+    });
+    el('download-deducted').addEventListener('click', () => {
+      el('point-event').value = '住房扣抵';
+      location.href = `/api/crm/point-events/export.csv?${pointParams()}`;
+    });
     el('download-customers').addEventListener('click', () => {
       try {
         location.href = `/api/crm/customers/export.csv?${customerParams()}`;
