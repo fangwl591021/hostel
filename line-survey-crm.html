@@ -92,55 +92,77 @@
       </div>
     </section>
 
-    <section class="grid grid-cols-4 gap-3">
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">總筆數</p><b id="count" class="text-3xl">0</b><p id="summary-updated" class="mt-2 text-xs text-slate-400">尚未載入</p></div>
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">完成率</p><b id="completion-rate" class="text-3xl">0%</b><p id="done-detail" class="mt-2 text-xs text-slate-400">0 / 0</p></div>
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">最大居住地</p><b id="top-area" class="text-2xl">-</b><p id="top-area-count" class="mt-2 text-xs text-slate-400">0 人</p></div>
-      <div class="rounded-2xl bg-white border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">主要客群</p><b id="top-party" class="text-2xl">-</b><p id="top-party-count" class="mt-2 text-xs text-slate-400">0 人</p></div>
+    <section id="quick-results" hidden class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div class="p-5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 id="quick-title" class="text-2xl font-black">快查結果</h2>
+          <p id="quick-meta" class="text-sm text-slate-500 mt-1">尚未載入</p>
+        </div>
+        <button id="quick-close" type="button" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">收合結果</button>
+      </div>
+      <div id="quick-table" class="overflow-x-auto"></div>
     </section>
 
-    <section class="grid grid-cols-12 gap-4">
-      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
-        <div class="flex items-center justify-between gap-3 mb-4">
-          <h2 class="text-lg font-black">性別分布</h2>
-          <span id="gender-total" class="text-xs font-bold text-slate-400">0 人</span>
+    <section class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div class="p-5 border-b border-slate-200 flex items-center justify-between gap-3">
+        <div>
+          <h2 class="text-2xl font-black">問卷分析</h2>
+          <p class="text-sm text-slate-500 mt-1">性別、地區、旅遊興趣與住宿偏好統計。</p>
         </div>
-        <div id="gender-bars" class="space-y-3"></div>
+        <button id="toggle-analytics" type="button" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">收合分析</button>
       </div>
-      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
-        <div class="flex items-center justify-between gap-3 mb-4">
-          <h2 class="text-lg font-black">居住地區排行</h2>
-          <span class="text-xs font-bold text-slate-400">問卷回答</span>
-        </div>
-        <div id="area-bars" class="space-y-3"></div>
-      </div>
-      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
-        <div class="flex items-center justify-between gap-3 mb-4">
-          <h2 class="text-lg font-black">旅遊興趣</h2>
-          <span class="text-xs font-bold text-slate-400">點數受眾</span>
-        </div>
-        <div id="interest-bars" class="space-y-3"></div>
-      </div>
-      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
-        <div class="flex items-center justify-between gap-3 mb-4">
-          <h2 class="text-lg font-black">同行型態</h2>
-          <span class="text-xs font-bold text-slate-400">分眾用途</span>
-        </div>
-        <div id="party-bars" class="space-y-3"></div>
-      </div>
-      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
-        <div class="flex items-center justify-between gap-3 mb-4">
-          <h2 class="text-lg font-black">住宿偏好</h2>
-          <span class="text-xs font-bold text-slate-400">推薦用途</span>
-        </div>
-        <div id="lodging-bars" class="space-y-3"></div>
-      </div>
-      <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
-        <div class="flex items-center justify-between gap-3 mb-4">
-          <h2 class="text-lg font-black">預算區間</h2>
-          <span class="text-xs font-bold text-slate-400">推播分層</span>
-        </div>
-        <div id="budget-bars" class="space-y-3"></div>
+      <div id="analytics-content" class="p-5 space-y-5">
+        <section class="grid grid-cols-4 gap-3">
+          <div class="rounded-2xl bg-slate-50 border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">總筆數</p><b id="count" class="text-3xl">0</b><p id="summary-updated" class="mt-2 text-xs text-slate-400">尚未載入</p></div>
+          <div class="rounded-2xl bg-slate-50 border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">完成率</p><b id="completion-rate" class="text-3xl">0%</b><p id="done-detail" class="mt-2 text-xs text-slate-400">0 / 0</p></div>
+          <div class="rounded-2xl bg-slate-50 border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">最大居住地</p><b id="top-area" class="text-2xl">-</b><p id="top-area-count" class="mt-2 text-xs text-slate-400">0 人</p></div>
+          <div class="rounded-2xl bg-slate-50 border border-slate-200 p-4"><p class="text-xs font-bold text-slate-400">主要客群</p><b id="top-party" class="text-2xl">-</b><p id="top-party-count" class="mt-2 text-xs text-slate-400">0 人</p></div>
+        </section>
+
+        <section class="grid grid-cols-12 gap-4">
+          <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <h2 class="text-lg font-black">性別分布</h2>
+              <span id="gender-total" class="text-xs font-bold text-slate-400">0 人</span>
+            </div>
+            <div id="gender-bars" class="space-y-3"></div>
+          </div>
+          <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <h2 class="text-lg font-black">居住地區排行</h2>
+              <span class="text-xs font-bold text-slate-400">問卷回答</span>
+            </div>
+            <div id="area-bars" class="space-y-3"></div>
+          </div>
+          <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <h2 class="text-lg font-black">旅遊興趣</h2>
+              <span class="text-xs font-bold text-slate-400">點數受眾</span>
+            </div>
+            <div id="interest-bars" class="space-y-3"></div>
+          </div>
+          <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <h2 class="text-lg font-black">同行型態</h2>
+              <span class="text-xs font-bold text-slate-400">分眾用途</span>
+            </div>
+            <div id="party-bars" class="space-y-3"></div>
+          </div>
+          <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <h2 class="text-lg font-black">住宿偏好</h2>
+              <span class="text-xs font-bold text-slate-400">推薦用途</span>
+            </div>
+            <div id="lodging-bars" class="space-y-3"></div>
+          </div>
+          <div class="col-span-4 rounded-2xl bg-white border border-slate-200 p-5">
+            <div class="flex items-center justify-between gap-3 mb-4">
+              <h2 class="text-lg font-black">預算區間</h2>
+              <span class="text-xs font-bold text-slate-400">推播分層</span>
+            </div>
+            <div id="budget-bars" class="space-y-3"></div>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -366,6 +388,41 @@
         </tr>
       `).join('');
     }
+    function renderQuickCustomers(payload = {}) {
+      const records = payload.records || [];
+      const overview = payload.overview || {};
+      el('quick-results').hidden = false;
+      el('quick-title').textContent = '已取點名單';
+      el('quick-meta').textContent = `已取點 ${overview.claimed || 0} 位，本次顯示 ${records.length} 位`;
+      el('quick-table').innerHTML = `
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">會員ID</th>
+              <th class="text-left px-4 py-3">姓名</th>
+              <th class="text-left px-4 py-3">性別</th>
+              <th class="text-left px-4 py-3">居住地區</th>
+              <th class="text-left px-4 py-3">手機</th>
+              <th class="text-left px-4 py-3">餘額</th>
+              <th class="text-left px-4 py-3">領點時間</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            ${records.map(r => `
+              <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 font-bold">${escapeHtml(r.memberId || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.name || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.gender || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.residenceArea || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.phone || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.creditBalance || '')}</td>
+                <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.claimedAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
     async function loadCustomers() {
       if (!authenticated) throw new Error('請先登入 CRM');
       setStatus('載入客戶名單中...');
@@ -374,6 +431,7 @@
       if (!data.success) throw new Error(friendlyError(data.error));
       renderCustomers(data.data || {});
       setStatus(`已載入客戶 ${data.data.count || 0} 筆`);
+      return data.data || {};
     }
     function pointParams() {
       const p = new URLSearchParams({ limit: '1000' });
@@ -398,6 +456,41 @@
         </tr>
       `).join('');
     }
+    function renderQuickPoints(payload = {}) {
+      const records = payload.records || [];
+      const overview = payload.overview || {};
+      el('quick-results').hidden = false;
+      el('quick-title').textContent = '已扣點名單';
+      el('quick-meta').textContent = `住房扣抵 ${overview.stays || 0} 筆，本次顯示 ${records.length} 筆`;
+      el('quick-table').innerHTML = `
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">會員</th>
+              <th class="text-left px-4 py-3">點數</th>
+              <th class="text-left px-4 py-3">入住者</th>
+              <th class="text-left px-4 py-3">手機</th>
+              <th class="text-left px-4 py-3">旅宿</th>
+              <th class="text-left px-4 py-3">區域/房號</th>
+              <th class="text-left px-4 py-3">扣點時間</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            ${records.map(r => `
+              <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3"><b>${escapeHtml(r.customerName || '-')}</b><br><span class="text-xs text-slate-400">${escapeHtml(r.memberId || '')}</span></td>
+                <td class="px-4 py-3 font-bold">${escapeHtml(r.getPoint || '')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.checkName || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.checkPhone || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.subShopName || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.subShopArea || '-')}<br><span class="text-xs text-slate-400">${escapeHtml(r.roomNumber || '')}</span></td>
+                <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.createdAt || '').replace('T', ' ').slice(0, 19))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
     async function loadPoints() {
       if (!authenticated) throw new Error('請先登入 CRM');
       setStatus('載入點數明細中...');
@@ -406,18 +499,21 @@
       if (!data.success) throw new Error(friendlyError(data.error));
       renderPoints(data.data || {});
       setStatus(`已載入明細 ${data.data.count || 0} 筆`);
+      return data.data || {};
     }
     async function loadClaimedList() {
       el('customer-claimed').value = '1';
       el('customer-search').value = '';
-      await loadCustomers();
-      document.getElementById('customers').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const payload = await loadCustomers();
+      renderQuickCustomers(payload);
+      document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     async function loadDeductedList() {
       el('point-event').value = '住房扣抵';
       el('point-search').value = '';
-      await loadPoints();
-      document.getElementById('point-events').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const payload = await loadPoints();
+      renderQuickPoints(payload);
+      document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     function renderClicks(payload = {}) {
       const overview = payload.overview || {};
@@ -498,6 +594,12 @@
     el('load-clicks').addEventListener('click', () => loadClicks().catch(err => setStatus(err.message)));
     el('quick-claimed').addEventListener('click', () => loadClaimedList().catch(err => setStatus(err.message)));
     el('quick-deducted').addEventListener('click', () => loadDeductedList().catch(err => setStatus(err.message)));
+    el('quick-close').addEventListener('click', () => { el('quick-results').hidden = true; });
+    el('toggle-analytics').addEventListener('click', () => {
+      const content = el('analytics-content');
+      content.hidden = !content.hidden;
+      el('toggle-analytics').textContent = content.hidden ? '展開分析' : '收合分析';
+    });
     el('download-claimed').addEventListener('click', () => {
       el('customer-claimed').value = '1';
       location.href = `/api/crm/customers/export.csv?${customerParams()}`;
