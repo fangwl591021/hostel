@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>圖文選單管理</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, "Noto Sans TC", sans-serif; background:#eef3f8; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-900">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between gap-4">
+      <div>
+        <h1 class="text-3xl font-black">圖文選單管理</h1>
+        <p class="text-sm text-slate-500 mt-1">集中管理 LINE 圖文選單入口與後續設定紀錄。</p>
+      </div>
+      <div class="flex gap-2">
+        <a href="/monitor" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">聊天室監控</a>
+        <a href="/crm" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold">客戶 CRM</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-6 space-y-5">
+    <section class="grid grid-cols-3 gap-4">
+      <a href="/kb" class="rounded-2xl bg-white border border-slate-200 p-5 hover:border-sky-400">
+        <p class="text-xs font-black text-sky-600">知識庫</p>
+        <h2 class="mt-2 text-xl font-black">選單內容素材</h2>
+        <p class="mt-2 text-sm leading-6 text-slate-500">整理圖文選單要導向的活動、點數規則、住宿資訊與常見問答。</p>
+      </a>
+      <a href="/crm#click-stats" class="rounded-2xl bg-white border border-slate-200 p-5 hover:border-amber-400">
+        <p class="text-xs font-black text-amber-600">成效</p>
+        <h2 class="mt-2 text-xl font-black">連結點擊統計</h2>
+        <p class="mt-2 text-sm leading-6 text-slate-500">查看活動訊息、點數入口與後續圖文選單按鈕的點擊表現。</p>
+      </a>
+      <a href="/broadcast" class="rounded-2xl bg-white border border-slate-200 p-5 hover:border-emerald-400">
+        <p class="text-xs font-black text-emerald-600">推播</p>
+        <h2 class="mt-2 text-xl font-black">受眾推播工作台</h2>
+        <p class="mt-2 text-sm leading-6 text-slate-500">依 CRM 標籤、問卷分眾與會員狀態安排分時推播。</p>
+      </a>
+    </section>
+
+    <section class="rounded-2xl bg-white border border-slate-200 p-5">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-2xl font-black">目前管理項目</h2>
+          <p class="text-sm text-slate-500 mt-1">先建立監控頁入口，避免操作人員找不到圖文選單相關工具。</p>
+        </div>
+        <span class="rounded-full bg-blue-50 text-blue-700 px-4 py-2 text-sm font-black">入口已建立</span>
+      </div>
+      <div class="mt-5 grid grid-cols-2 gap-3 text-sm">
+        <div class="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+          <p class="font-black">內容來源</p>
+          <p class="mt-1 text-slate-500 leading-6">後續圖文選單文案、連結、圖片素材可放在雲端知識庫，不需要每次改程式。</p>
+        </div>
+        <div class="rounded-2xl bg-slate-50 border border-slate-200 p-4">
+          <p class="font-black">成效追蹤</p>
+          <p class="mt-1 text-slate-500 leading-6">按鈕連結若改走追蹤轉址，就能回寫 CRM 的點擊統計與分眾紀錄。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -3062,6 +3062,9 @@ export default {
       if ((url.pathname === '/kb' || url.pathname === '/knowledge-base' || url.pathname === '/knowledge-base.html') && request.method === 'GET') {
         return serveGithubHtml('knowledge-base.html');
       }
+      if ((url.pathname === '/rich-menu' || url.pathname === '/rich-menu.html') && request.method === 'GET') {
+        return serveGithubHtml('rich-menu.html');
+      }
       if (url.pathname === '/r/tainan-events' && request.method === 'GET') {
         await recordLinkClick(env, request, TAINAN_TOURISM_NEWS_TRACK_TARGET, {
           lineUserId: url.searchParams.get('uid') || '',
