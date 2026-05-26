@@ -38,6 +38,11 @@ const MEMBER_LIST_API_URL = 'https://aiwe.cc/index.php/wp-json/wetw/v1/query-sho
 
 const POINTS_SURVEY_STEPS = [
   {
+    key: 'points_notice',
+    title: '本階段點數取得，必須於6月30日使用完畢，逾期將自動歸零，特於申請前告知，請問您了解了嗎？',
+    options: ['了解'],
+  },
+  {
     key: 'interest',
     title: '這次你最想了解哪一類臺南旅遊資訊？',
     options: ['住宿優惠', '合作旅宿', '埤塘景點', '打卡加碼', '攝影活動', '都想看看'],
@@ -1080,13 +1085,13 @@ async function startPointsSurvey(env, event = {}) {
     INSERT INTO line_survey_profiles (
       line_user_id, thread_id, display_name, picture_url, trigger_keyword,
       current_step, completed, source_url, answers_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, 'interest', 0, ?, '{}', ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, 'points_notice', 0, ?, '{}', ?, ?)
     ON CONFLICT(line_user_id) DO UPDATE SET
       thread_id = excluded.thread_id,
       display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE line_survey_profiles.display_name END,
       picture_url = CASE WHEN excluded.picture_url <> '' THEN excluded.picture_url ELSE line_survey_profiles.picture_url END,
       trigger_keyword = excluded.trigger_keyword,
-      current_step = 'interest',
+      current_step = 'points_notice',
       completed = 0,
       residence_area = '',
       area = '',
