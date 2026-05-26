@@ -289,6 +289,8 @@
 
   <script>
     let authenticated = false;
+    const QUICK_PAGE_SIZE = 100;
+    let quickState = { type: '', page: 1, records: [], overview: {}, month: '' };
     const el = id => document.getElementById(id);
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const params = () => {
@@ -368,8 +370,8 @@
       renderBars('lodging-bars', countBy(records, 'lodgingType'), total, 'bg-teal-500');
       renderBars('budget-bars', countBy(records, 'budget'), total, 'bg-slate-700');
     }
-    function customerParams() {
-      const p = new URLSearchParams({ limit: '1000' });
+    function customerParams(limit = '1000') {
+      const p = new URLSearchParams({ limit });
       if (el('customer-search').value.trim()) p.set('search', el('customer-search').value.trim());
       if (el('customer-claimed').value !== '') p.set('claimed', el('customer-claimed').value);
       if (el('point-month').value) p.set('month', el('point-month').value);
@@ -392,13 +394,42 @@
         </tr>
       `).join('');
     }
-    function renderQuickCustomers(payload = {}) {
-      const records = payload.records || [];
-      const overview = payload.overview || {};
-      const monthText = el('point-month').value ? `，月份 ${el('point-month').value}` : '';
+    function quickPagerHtml(page, pageCount, total) {
+      return `
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
+          <div class="text-sm text-slate-500">每頁 ${QUICK_PAGE_SIZE} 筆，共 ${total} 筆，第 ${page} / ${pageCount || 1} 頁</div>
+          <div class="flex gap-2">
+            <button id="quick-prev" type="button" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold disabled:bg-slate-100 disabled:text-slate-400" ${page <= 1 ? 'disabled' : ''}>上一頁</button>
+            <button id="quick-next" type="button" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold disabled:bg-slate-100 disabled:text-slate-400" ${page >= pageCount ? 'disabled' : ''}>下一頁</button>
+          </div>
+        </div>
+      `;
+    }
+    function bindQuickPager() {
+      document.getElementById('quick-prev')?.addEventListener('click', () => {
+        quickState.page = Math.max(1, quickState.page - 1);
+        renderQuickPage();
+      });
+      document.getElementById('quick-next')?.addEventListener('click', () => {
+        const pageCount = Math.max(1, Math.ceil(quickState.records.length / QUICK_PAGE_SIZE));
+        quickState.page = Math.min(pageCount, quickState.page + 1);
+        renderQuickPage();
+      });
+    }
+    function renderQuickPage() {
+      if (quickState.type === 'customers') return renderQuickCustomers();
+      if (quickState.type === 'points') return renderQuickPoints();
+    }
+    function renderQuickCustomers() {
+      const records = quickState.records || [];
+      const overview = quickState.overview || {};
+      const pageCount = Math.max(1, Math.ceil(records.length / QUICK_PAGE_SIZE));
+      quickState.page = Math.min(Math.max(1, quickState.page), pageCount);
+      const pageRows = records.slice((quickState.page - 1) * QUICK_PAGE_SIZE, quickState.page * QUICK_PAGE_SIZE);
+      const monthText = quickState.month ? `，月份 ${quickState.month}` : '';
       el('quick-results').hidden = false;
       el('quick-title').textContent = '已取點名單';
-      el('quick-meta').textContent = `已取點 ${overview.claimed || 0} 位，本次顯示 ${records.length} 位${monthText}`;
+      el('quick-meta').textContent = `已取點 ${overview.claimed || 0} 位，本次載入 ${records.length} 位${monthText}`;
       el('quick-table').innerHTML = `
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">
@@ -413,7 +444,7 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            ${records.map(r => `
+            ${pageRows.map(r => `
               <tr class="hover:bg-slate-50">
                 <td class="px-4 py-3 font-bold">${escapeHtml(r.memberId || '-')}</td>
                 <td class="px-4 py-3">${escapeHtml(r.name || '-')}</td>
@@ -426,20 +457,22 @@
             `).join('')}
           </tbody>
         </table>
+        ${quickPagerHtml(quickState.page, pageCount, records.length)}
       `;
+      bindQuickPager();
     }
-    async function loadCustomers() {
+    async function loadCustomers(limit = '1000') {
       if (!authenticated) throw new Error('請先登入 CRM');
       setStatus('載入客戶名單中...');
-      const res = await fetch(`/api/crm/customers?${customerParams()}`);
+      const res = await fetch(`/api/crm/customers?${customerParams(limit)}`);
       const data = await res.json();
       if (!data.success) throw new Error(friendlyError(data.error));
       renderCustomers(data.data || {});
       setStatus(`已載入客戶 ${data.data.count || 0} 筆`);
       return data.data || {};
     }
-    function pointParams() {
-      const p = new URLSearchParams({ limit: '1000' });
+    function pointParams(limit = '1000') {
+      const p = new URLSearchParams({ limit });
       if (el('point-search').value.trim()) p.set('search', el('point-search').value.trim());
       if (el('point-event').value) p.set('eventName', el('point-event').value);
       if (el('point-month').value) p.set('month', el('point-month').value);
@@ -462,13 +495,16 @@
         </tr>
       `).join('');
     }
-    function renderQuickPoints(payload = {}) {
-      const records = payload.records || [];
-      const overview = payload.overview || {};
-      const monthText = el('point-month').value ? `，月份 ${el('point-month').value}` : '';
+    function renderQuickPoints() {
+      const records = quickState.records || [];
+      const overview = quickState.overview || {};
+      const pageCount = Math.max(1, Math.ceil(records.length / QUICK_PAGE_SIZE));
+      quickState.page = Math.min(Math.max(1, quickState.page), pageCount);
+      const pageRows = records.slice((quickState.page - 1) * QUICK_PAGE_SIZE, quickState.page * QUICK_PAGE_SIZE);
+      const monthText = quickState.month ? `，月份 ${quickState.month}` : '';
       el('quick-results').hidden = false;
       el('quick-title').textContent = '已扣點名單';
-      el('quick-meta').textContent = `住房扣抵 ${overview.stays || 0} 筆，本次顯示 ${records.length} 筆${monthText}`;
+      el('quick-meta').textContent = `住房扣抵 ${overview.stays || 0} 筆，本次載入 ${records.length} 筆${monthText}`;
       el('quick-table').innerHTML = `
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">
@@ -483,7 +519,7 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            ${records.map(r => `
+            ${pageRows.map(r => `
               <tr class="hover:bg-slate-50">
                 <td class="px-4 py-3"><b>${escapeHtml(r.customerName || '-')}</b><br><span class="text-xs text-slate-400">${escapeHtml(r.memberId || '')}</span></td>
                 <td class="px-4 py-3 font-bold">${escapeHtml(r.getPoint || '')}</td>
@@ -496,12 +532,14 @@
             `).join('')}
           </tbody>
         </table>
+        ${quickPagerHtml(quickState.page, pageCount, records.length)}
       `;
+      bindQuickPager();
     }
-    async function loadPoints() {
+    async function loadPoints(limit = '1000') {
       if (!authenticated) throw new Error('請先登入 CRM');
       setStatus('載入點數明細中...');
-      const res = await fetch(`/api/crm/point-events?${pointParams()}`);
+      const res = await fetch(`/api/crm/point-events?${pointParams(limit)}`);
       const data = await res.json();
       if (!data.success) throw new Error(friendlyError(data.error));
       renderPoints(data.data || {});
@@ -511,15 +549,17 @@
     async function loadClaimedList() {
       el('customer-claimed').value = '1';
       el('customer-search').value = '';
-      const payload = await loadCustomers();
-      renderQuickCustomers(payload);
+      const payload = await loadCustomers('10000');
+      quickState = { type: 'customers', page: 1, records: payload.records || [], overview: payload.overview || {}, month: el('point-month').value || '' };
+      renderQuickCustomers();
       document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     async function loadDeductedList() {
       el('point-event').value = '住房扣抵';
       el('point-search').value = '';
-      const payload = await loadPoints();
-      renderQuickPoints(payload);
+      const payload = await loadPoints('10000');
+      quickState = { type: 'points', page: 1, records: payload.records || [], overview: payload.overview || {}, month: el('point-month').value || '' };
+      renderQuickPoints();
       document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     function renderClicks(payload = {}) {
