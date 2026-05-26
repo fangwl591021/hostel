@@ -36,6 +36,7 @@
             <button data-mode="area" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">指定地區</button>
             <button data-mode="gender" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">性別線索</button>
             <button data-mode="survey" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">問卷分眾</button>
+            <button data-mode="claimedNotDeducted" class="mode-btn w-full rounded-xl bg-emerald-100 text-emerald-800 px-4 py-3 text-left font-bold">&#24050;&#38936;&#40670;&#26410;&#25187;&#40670;</button>
             <button data-mode="risk" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">高風險名單</button>
             <button data-mode="tag" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">標籤名單</button>
             <button data-mode="keyword" class="mode-btn w-full rounded-xl bg-slate-100 text-slate-700 px-4 py-3 text-left font-bold">關鍵字搜尋</button>
@@ -178,6 +179,7 @@
       area: '指定地區',
       gender: '性別線索',
       survey: '問卷分眾',
+      claimedNotDeducted: '\u5df2\u9818\u9ede\u672a\u6263\u9ede',
       risk: '高風險名單',
       tag: '標籤名單',
       keyword: '關鍵字搜尋',
@@ -239,6 +241,7 @@
         keyword: el('filter-keyword').value.trim(),
         activeDays: Number(el('filter-active-days').value || 0),
         limit: Number(el('filter-limit').value || 0),
+        audience: mode === 'claimedNotDeducted' ? 'claimed_not_deducted' : '',
       };
       if (mode === 'all') {
         filters.status = 'all';
@@ -253,6 +256,15 @@
       }
       if (mode === 'active7') filters.activeDays = 7;
       if (mode === 'active30') filters.activeDays = 30;
+      if (mode === 'claimedNotDeducted') {
+        filters.status = 'all';
+        filters.risk = 'all';
+        filters.gender = 'all';
+        filters.activeDays = 0;
+        filters.tag = '';
+        filters.keyword = '';
+        filters.area = '';
+      }
       if (mode === 'area' && !filters.area) throw new Error('請輸入地區');
       if (mode === 'gender' && filters.gender === 'all') throw new Error('請選擇性別線索');
       if (mode === 'survey' && !filters.surveyGender && !filters.surveyResidenceArea) throw new Error('請選擇問卷性別或問卷居住地區');

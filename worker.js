@@ -2977,6 +2977,7 @@ function buildBroadcastRecipientQuery(filters = {}) {
   const clauses = ["source_user_id <> ''"];
   const values = [];
   const joins = [];
+  const audience = String(filters.audience || filters.audienceType || filters.audience_type || '').trim();
   const status = String(filters.status || '').trim();
   const risk = String(filters.risk || '').trim();
   const gender = String(filters.gender || '').trim();
@@ -2996,6 +2997,27 @@ function buildBroadcastRecipientQuery(filters = {}) {
   const needsSurveyJoin = surveyResidenceArea || surveyArea || surveyGender || surveyTravelTime || surveyPartyType || surveyLodgingType || surveyBudget || surveyCompleted !== '';
 
   if (needsSurveyJoin) joins.push('LEFT JOIN line_survey_profiles sp ON sp.line_user_id = line_threads.source_user_id');
+
+  if (audience === 'claimed_not_deducted') {
+    clauses.push("(',' || tags || ',') LIKE ?");
+    values.push('%\u5df2\u9818\u9ede%');
+    clauses.push(`
+      NOT EXISTS (
+        SELECT 1
+        FROM line_point_events lpe
+        WHERE lpe.line_user_id = line_threads.source_user_id
+          AND lpe.shop_id = ?
+          AND (
+            lpe.get_point < 0
+            OR lpe.event_name LIKE '%\u6263%'
+            OR lpe.event_name LIKE '%\u6838\u92b7%'
+            OR lpe.event_content LIKE '%\u6263%'
+            OR lpe.event_content LIKE '%\u6838\u92b7%'
+          )
+      )
+    `);
+    values.push(String(TAINAN_SHOP_ID));
+  }
 
   if (status && status !== 'all') {
     clauses.push('status = ?');
@@ -3081,6 +3103,7 @@ async function previewBroadcastRecipients(env, body = {}) {
   if (customUserIds.length) {
     return { success: true, data: { count: [...new Set(customUserIds)].length, sample: [] } };
   }
+  if (String((body.filters || {}).audience || '') === 'claimed_not_deducted') await ensureLinePointEventsTable(env);
   const query = buildBroadcastRecipientQuery(body.filters || {});
   const { results } = await env.DB.prepare(query.sql).bind(...query.values).all();
   return {
@@ -3114,6 +3137,7 @@ async function createBroadcastJob(env, body = {}) {
     : [];
   let resolvedRecipientRows = customUserIds.map(userId => ({ source_user_id: userId, display_name: '' }));
   if (!customUserIds.length) {
+    if (String((body.filters || {}).audience || '') === 'claimed_not_deducted') await ensureLinePointEventsTable(env);
     const query = buildBroadcastRecipientQuery(body.filters || {});
     const result = await env.DB.prepare(query.sql).bind(...query.values).all();
     resolvedRecipientRows = result.results || [];
