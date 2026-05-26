@@ -83,7 +83,10 @@
           <h2 class="text-xl font-black">點數名單快查</h2>
           <p class="text-sm text-slate-500 mt-1">直接查看已取點會員，以及已用住宿扣抵點數的名單。</p>
         </div>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap items-end gap-2">
+          <label class="block text-sm font-bold text-slate-600">月份
+            <input id="point-month" type="month" class="mt-1 rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+          </label>
           <button id="quick-claimed" type="button" data-auth-action class="rounded-xl bg-sky-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已取點名單</button>
           <button id="quick-deducted" type="button" data-auth-action class="rounded-xl bg-violet-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已扣點名單</button>
           <button id="download-claimed" type="button" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載已取點</button>
@@ -369,6 +372,7 @@
       const p = new URLSearchParams({ limit: '1000' });
       if (el('customer-search').value.trim()) p.set('search', el('customer-search').value.trim());
       if (el('customer-claimed').value !== '') p.set('claimed', el('customer-claimed').value);
+      if (el('point-month').value) p.set('month', el('point-month').value);
       return p;
     }
     function renderCustomers(payload = {}) {
@@ -391,9 +395,10 @@
     function renderQuickCustomers(payload = {}) {
       const records = payload.records || [];
       const overview = payload.overview || {};
+      const monthText = el('point-month').value ? `，月份 ${el('point-month').value}` : '';
       el('quick-results').hidden = false;
       el('quick-title').textContent = '已取點名單';
-      el('quick-meta').textContent = `已取點 ${overview.claimed || 0} 位，本次顯示 ${records.length} 位`;
+      el('quick-meta').textContent = `已取點 ${overview.claimed || 0} 位，本次顯示 ${records.length} 位${monthText}`;
       el('quick-table').innerHTML = `
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">
@@ -437,6 +442,7 @@
       const p = new URLSearchParams({ limit: '1000' });
       if (el('point-search').value.trim()) p.set('search', el('point-search').value.trim());
       if (el('point-event').value) p.set('eventName', el('point-event').value);
+      if (el('point-month').value) p.set('month', el('point-month').value);
       return p;
     }
     function renderPoints(payload = {}) {
@@ -459,9 +465,10 @@
     function renderQuickPoints(payload = {}) {
       const records = payload.records || [];
       const overview = payload.overview || {};
+      const monthText = el('point-month').value ? `，月份 ${el('point-month').value}` : '';
       el('quick-results').hidden = false;
       el('quick-title').textContent = '已扣點名單';
-      el('quick-meta').textContent = `住房扣抵 ${overview.stays || 0} 筆，本次顯示 ${records.length} 筆`;
+      el('quick-meta').textContent = `住房扣抵 ${overview.stays || 0} 筆，本次顯示 ${records.length} 筆${monthText}`;
       el('quick-table').innerHTML = `
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">

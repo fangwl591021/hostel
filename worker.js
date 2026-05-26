@@ -1558,6 +1558,7 @@ async function listCrmCustomers(env, filters = {}) {
   const gender = String(filters.gender || '').trim();
   const residenceArea = String(filters.residenceArea || filters.residence_area || '').trim();
   const claimed = String(filters.claimed ?? '').trim();
+  const month = String(filters.month || filters.claimedMonth || filters.claimed_month || '').trim();
   const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 10000));
   const clauses = ['1 = 1'];
   const values = [];
@@ -1578,13 +1579,18 @@ async function listCrmCustomers(env, filters = {}) {
   }
   if (claimed === '1') clauses.push("claimed_at <> ''");
   if (claimed === '0') clauses.push("claimed_at = ''");
+  if (/^\d{4}-\d{2}$/.test(month)) {
+    clauses.push("substr(replace(claimed_at, '/', '-'), 1, 7) = ?");
+    values.push(month);
+  }
   const overview = await env.DB.prepare(`
     SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN claimed_at <> '' THEN 1 ELSE 0 END) AS claimed,
       SUM(CASE WHEN phone <> '' THEN 1 ELSE 0 END) AS with_phone
     FROM crm_customers
-  `).first();
+    WHERE ${clauses.join(' AND ')}
+  `).bind(...values).first();
   const { results } = await env.DB.prepare(`
     SELECT *
     FROM crm_customers
@@ -1696,9 +1702,12 @@ async function listCrmPointEvents(env, filters = {}) {
   const search = String(filters.search || '').trim();
   const eventName = String(filters.eventName || filters.event_name || '').trim();
   const memberId = String(filters.memberId || filters.member_id || '').trim();
+  const month = String(filters.month || filters.eventMonth || filters.event_month || '').trim();
   const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 10000));
   const clauses = ['1 = 1'];
+  const overviewClauses = ['1 = 1'];
   const values = [];
+  const overviewValues = [];
   if (search) {
     clauses.push(`(
       pe.member_id LIKE ? OR c.customer_name LIKE ? OR pe.event_name LIKE ?
@@ -1709,10 +1718,20 @@ async function listCrmPointEvents(env, filters = {}) {
   if (eventName) {
     clauses.push('pe.event_name = ?');
     values.push(eventName);
+    overviewClauses.push('event_name = ?');
+    overviewValues.push(eventName);
   }
   if (memberId) {
     clauses.push('pe.member_id = ?');
     values.push(memberId);
+    overviewClauses.push('member_id = ?');
+    overviewValues.push(memberId);
+  }
+  if (/^\d{4}-\d{2}$/.test(month)) {
+    clauses.push("substr(replace(pe.created_at, '/', '-'), 1, 7) = ?");
+    values.push(month);
+    overviewClauses.push("substr(replace(created_at, '/', '-'), 1, 7) = ?");
+    overviewValues.push(month);
   }
   const overview = await env.DB.prepare(`
     SELECT
@@ -1721,7 +1740,8 @@ async function listCrmPointEvents(env, filters = {}) {
       SUM(CASE WHEN event_name LIKE '%註冊贈點%' THEN 1 ELSE 0 END) AS registrations,
       SUM(COALESCE(get_point, 0)) AS point_sum
     FROM crm_point_events
-  `).first();
+    WHERE ${overviewClauses.join(' AND ')}
+  `).bind(...overviewValues).first();
   const { results } = await env.DB.prepare(`
     SELECT pe.*, c.customer_name
     FROM crm_point_events pe
