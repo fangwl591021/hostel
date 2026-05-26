@@ -90,6 +90,7 @@
           <button id="quick-claimed" type="button" data-auth-action class="rounded-xl bg-sky-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已取點名單</button>
           <button id="quick-deducted" type="button" data-auth-action class="rounded-xl bg-violet-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已扣點名單</button>
           <button id="quick-push-audience" type="button" data-auth-action class="rounded-xl bg-emerald-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">未扣點推播名單</button>
+          <button id="sync-point-events" type="button" data-auth-action class="rounded-xl bg-slate-900 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">同步母站點數</button>
           <button id="download-claimed" type="button" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載已取點</button>
           <button id="download-deducted" type="button" data-auth-action class="rounded-xl border border-slate-300 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載已扣點</button>
           <button id="download-push-audience" type="button" data-auth-action class="rounded-xl border border-emerald-300 text-emerald-700 px-5 py-3 font-bold disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">下載推播名單</button>
@@ -563,33 +564,28 @@
       const monthText = quickState.month ? `，領點月份 ${quickState.month}` : '';
       el('quick-results').hidden = false;
       el('quick-title').textContent = '未扣點推播名單';
-      const pushableHint = Number(overview.pushable || 0) ? '' : '；目前缺 LINE UID，需先完成會員與 LINE UID 對應才能直接推播';
-      el('quick-meta').textContent = `已取點但尚未住房扣抵 ${overview.audience || 0} 位，可推播 ${overview.pushable || 0} 位，本次載入 ${records.length} 位${monthText}${pushableHint}`;
+      el('quick-meta').textContent = `已領點 UID 扣除已扣點 UID 後 ${overview.audience || 0} 位，可推播 ${overview.pushable || 0} 位，問卷資料 ${overview.withSurvey || 0} 位，本次載入 ${records.length} 位${monthText}`;
       el('quick-table').innerHTML = `
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">
             <tr>
               <th class="text-left px-4 py-3">LINE UID</th>
-              <th class="text-left px-4 py-3">會員ID</th>
               <th class="text-left px-4 py-3">姓名</th>
               <th class="text-left px-4 py-3">性別</th>
               <th class="text-left px-4 py-3">居住地區</th>
-              <th class="text-left px-4 py-3">手機</th>
-              <th class="text-left px-4 py-3">餘額</th>
               <th class="text-left px-4 py-3">領點時間</th>
+              <th class="text-left px-4 py-3">標籤</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
             ${pageRows.map(r => `
               <tr class="hover:bg-slate-50">
                 <td class="px-4 py-3 text-xs text-slate-500">${escapeHtml(r.lineUserId || '-')}</td>
-                <td class="px-4 py-3 font-bold">${escapeHtml(r.memberId || '-')}</td>
-                <td class="px-4 py-3">${escapeHtml(r.name || '-')}</td>
+                <td class="px-4 py-3 font-bold">${escapeHtml(r.displayName || '-')}</td>
                 <td class="px-4 py-3">${escapeHtml(r.gender || '-')}</td>
                 <td class="px-4 py-3">${escapeHtml(r.residenceArea || '-')}</td>
-                <td class="px-4 py-3">${escapeHtml(r.phone || '-')}</td>
-                <td class="px-4 py-3">${escapeHtml(r.creditBalance || '')}</td>
                 <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.claimedAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
+                <td class="px-4 py-3 max-w-[360px] text-xs text-slate-500">${escapeHtml(r.tags || '-')}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -609,6 +605,16 @@
       renderQuickPushAudience();
       setStatus(`已產生推播名單 ${payload.count || 0} 筆`);
       document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    async function syncPointEvents() {
+      if (!authenticated) throw new Error('請先登入 CRM');
+      setStatus('同步母站點數紀錄中...');
+      const res = await fetch('/api/crm/sync-line-point-events?maxPages=100&perPage=100');
+      const data = await res.json();
+      if (!data.success) throw new Error(friendlyError(data.error || data.message));
+      const info = data.data || {};
+      setStatus(`母站點數同步完成：掃描 ${info.scanned || 0} 筆，寫入 ${info.imported || 0} 筆，已扣點 UID ${info.deductedUsers || 0} 位`);
+      await loadPushAudienceList();
     }
     async function loadClaimedList() {
       el('customer-claimed').value = '1';
@@ -706,6 +712,7 @@
     el('quick-claimed').addEventListener('click', () => loadClaimedList().catch(err => setStatus(err.message)));
     el('quick-deducted').addEventListener('click', () => loadDeductedList().catch(err => setStatus(err.message)));
     el('quick-push-audience').addEventListener('click', () => loadPushAudienceList().catch(err => setStatus(err.message)));
+    el('sync-point-events').addEventListener('click', () => syncPointEvents().catch(err => setStatus(err.message)));
     el('quick-close').addEventListener('click', () => { el('quick-results').hidden = true; });
     el('toggle-analytics').addEventListener('click', () => {
       const content = el('analytics-content');

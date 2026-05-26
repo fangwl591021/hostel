@@ -35,6 +35,8 @@ const ADMIN_SESSION_MAX_AGE = 60 * 60 * 12;
 const HOURLY_SYNC_SETTING_KEY = 'last_hourly_sync_at';
 const HOURLY_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 const MEMBER_LIST_API_URL = 'https://aiwe.cc/index.php/wp-json/wetw/v1/query-shop-2500-line-user-list';
+const POINT_LIST_API_URL = 'https://aiwe.cc/index.php/wp-json/wetw-point/v1/query-user-point-list';
+const TAINAN_SHOP_ID = 2500;
 
 const POINTS_SURVEY_STEPS = [
   {
@@ -1541,6 +1543,21 @@ function crmCustomerFromRow(row = {}) {
   };
 }
 
+function crmAudienceFromRow(row = {}) {
+  return {
+    lineUserId: row.line_user_id || '',
+    displayName: row.display_name || '',
+    tags: row.tags || '',
+    claimedAt: row.claimed_at || '',
+    deductedAt: row.deducted_at || '',
+    deductedEventName: row.deducted_event_name || '',
+    deductedPoint: row.deducted_point ?? '',
+    residenceArea: row.residence_area || '',
+    gender: row.gender || '',
+    updatedAt: row.updated_at || '',
+  };
+}
+
 async function listCrmCustomers(env, filters = {}) {
   if (!env.DB) throw new Error('D1 binding missing');
   await ensureCrmCustomersTable(env);
@@ -1630,47 +1647,96 @@ async function exportCrmCustomersCsv(env, filters = {}) {
 
 async function listCrmClaimedNotDeductedAudience(env, filters = {}) {
   if (!env.DB) throw new Error('D1 binding missing');
-  await ensureCrmCustomersTable(env);
-  await ensureCrmPointEventsTable(env);
+  await ensureLinePointEventsTable(env);
   const search = String(filters.search || '').trim();
   const month = String(filters.month || filters.claimedMonth || filters.claimed_month || '').trim();
   const pushableOnly = String(filters.pushable ?? '0').trim() === '1';
   const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 10000));
-  const clauses = ["c.claimed_at <> ''"];
-  const values = [];
-  if (pushableOnly) clauses.push("c.line_user_id <> ''");
+  const clauses = ["(',' || lt.tags || ',') LIKE ?"];
+  const values = ['%已領點%'];
+  const deductedWhere = `
+    lpe.line_user_id = lt.source_user_id
+    AND lpe.shop_id = '${TAINAN_SHOP_ID}'
+    AND (
+      lpe.get_point < 0
+      OR lpe.event_name LIKE '%扣%'
+      OR lpe.event_name LIKE '%核銷%'
+      OR lpe.event_content LIKE '%扣%'
+      OR lpe.event_content LIKE '%核銷%'
+    )
+  `;
+  const notDeductedClause = `NOT EXISTS (
+    SELECT 1
+    FROM line_point_events lpe
+    WHERE ${deductedWhere}
+  )`;
+  clauses.push(notDeductedClause);
+  if (pushableOnly) clauses.push("lt.source_user_id <> ''");
   if (search) {
     clauses.push(`(
-      c.member_id LIKE ? OR c.line_user_id LIKE ? OR c.customer_name LIKE ?
-      OR c.phone LIKE ? OR c.residence_area LIKE ?
+      lt.source_user_id LIKE ? OR lt.display_name LIKE ? OR lt.tags LIKE ?
+      OR sp.residence_area LIKE ? OR sp.gender LIKE ?
     )`);
     values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
   }
   if (/^\d{4}-\d{2}$/.test(month)) {
-    clauses.push("substr(replace(c.claimed_at, '/', '-'), 1, 7) = ?");
+    clauses.push(`EXISTS (
+      SELECT 1
+      FROM line_point_events claim
+      WHERE claim.line_user_id = lt.source_user_id
+        AND claim.get_point > 0
+        AND substr(replace(claim.created_at, '/', '-'), 1, 7) = ?
+    )`);
     values.push(month);
   }
-  clauses.push(`NOT EXISTS (
-    SELECT 1
-    FROM crm_point_events pe
-    WHERE pe.member_id = c.member_id
-      AND pe.event_name = '住房扣抵'
-  )`);
 
   const overview = await env.DB.prepare(`
     SELECT
       COUNT(*) AS audience,
-      SUM(CASE WHEN c.line_user_id <> '' THEN 1 ELSE 0 END) AS pushable,
-      SUM(CASE WHEN c.phone <> '' THEN 1 ELSE 0 END) AS with_phone
-    FROM crm_customers c
+      SUM(CASE WHEN lt.source_user_id <> '' THEN 1 ELSE 0 END) AS pushable,
+      SUM(CASE WHEN sp.line_user_id IS NOT NULL THEN 1 ELSE 0 END) AS with_survey
+    FROM line_threads lt
+    LEFT JOIN line_survey_profiles sp ON sp.line_user_id = lt.source_user_id
     WHERE ${clauses.join(' AND ')}
   `).bind(...values).first();
 
   const { results } = await env.DB.prepare(`
-    SELECT c.*
-    FROM crm_customers c
+    SELECT
+      lt.source_user_id AS line_user_id,
+      lt.display_name,
+      lt.tags,
+      COALESCE(sp.residence_area, '') AS residence_area,
+      COALESCE(sp.gender, '') AS gender,
+      lt.updated_at,
+      (
+        SELECT MAX(claim.created_at)
+        FROM line_point_events claim
+        WHERE claim.line_user_id = lt.source_user_id
+          AND claim.get_point > 0
+      ) AS claimed_at,
+      (
+        SELECT MAX(lpe.created_at)
+        FROM line_point_events lpe
+        WHERE ${deductedWhere}
+      ) AS deducted_at,
+      (
+        SELECT lpe.event_name
+        FROM line_point_events lpe
+        WHERE ${deductedWhere}
+        ORDER BY lpe.created_at DESC
+        LIMIT 1
+      ) AS deducted_event_name,
+      (
+        SELECT lpe.get_point
+        FROM line_point_events lpe
+        WHERE ${deductedWhere}
+        ORDER BY lpe.created_at DESC
+        LIMIT 1
+      ) AS deducted_point
+    FROM line_threads lt
+    LEFT JOIN line_survey_profiles sp ON sp.line_user_id = lt.source_user_id
     WHERE ${clauses.join(' AND ')}
-    ORDER BY c.claimed_at DESC, CAST(c.member_id AS INTEGER) ASC
+    ORDER BY claimed_at DESC, lt.updated_at DESC
     LIMIT ?
   `).bind(...values, limit).all();
 
@@ -1681,10 +1747,10 @@ async function listCrmClaimedNotDeductedAudience(env, filters = {}) {
       overview: {
         audience: Number(overview?.audience || 0),
         pushable: Number(overview?.pushable || 0),
-        withPhone: Number(overview?.with_phone || 0),
+        withSurvey: Number(overview?.with_survey || 0),
       },
       count: (results || []).length,
-      records: (results || []).map(crmCustomerFromRow),
+      records: (results || []).map(crmAudienceFromRow),
     },
   };
 }
@@ -1694,19 +1760,220 @@ async function exportCrmClaimedNotDeductedAudienceCsv(env, filters = {}) {
   if (!result.success) return result;
   const headers = [
     ['lineUserId', 'LINE UID'],
-    ['memberId', '會員ID'],
-    ['name', '姓名'],
+    ['displayName', '姓名'],
     ['gender', '性別'],
     ['residenceArea', '居住地區'],
-    ['phone', '手機'],
-    ['creditBalance', '點數餘額'],
     ['claimedAt', '領點時間'],
+    ['deductedAt', '扣點時間'],
+    ['deductedEventName', '扣點事件'],
+    ['deductedPoint', '扣點數'],
+    ['tags', '標籤'],
+    ['updatedAt', '更新時間'],
   ];
   const lines = [
     headers.map(([, label]) => csvCell(label)).join(','),
     ...result.data.records.map(record => headers.map(([key]) => csvCell(record[key])).join(',')),
   ];
   return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
+}
+
+async function ensureLinePointEventsTable(env) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS line_point_events (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT '',
+      line_user_id TEXT NOT NULL DEFAULT '',
+      shop_id TEXT NOT NULL DEFAULT '',
+      event_name TEXT NOT NULL DEFAULT '',
+      event_content TEXT NOT NULL DEFAULT '',
+      point_type TEXT NOT NULL DEFAULT '',
+      get_point REAL,
+      point_balance REAL,
+      created_at TEXT NOT NULL DEFAULT '',
+      shop_user_lineid TEXT NOT NULL DEFAULT '',
+      child_shop_name TEXT NOT NULL DEFAULT '',
+      child_shop_renew TEXT NOT NULL DEFAULT '',
+      shop_remark TEXT NOT NULL DEFAULT '',
+      raw_json TEXT NOT NULL DEFAULT '',
+      synced_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_line_point_events_uid ON line_point_events(line_user_id)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_line_point_events_shop ON line_point_events(shop_id)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_line_point_events_event ON line_point_events(event_name)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_line_point_events_created ON line_point_events(created_at)`).run();
+}
+
+function getPointApiKey(env) {
+  return String(
+    env.POINT_API_KEY ||
+    env.WETW_POINT_API_KEY ||
+    env.LINE_USER_LIST_API_KEY ||
+    env.WETW_API_KEY ||
+    env.MEMBER_API_KEY ||
+    ''
+  ).trim();
+}
+
+function normalizePointEvent(row = {}) {
+  const lineUserId = String(row.LINE_user_id || row.line_user_id || row.LINE_USER_ID || '').trim();
+  const id = String(row.id || row.ID || `${lineUserId}:${row.shop_id || ''}:${row.created_at || ''}:${row.event_name || ''}:${row.get_point || ''}`).trim();
+  return {
+    id,
+    userId: String(row.user_id || '').trim(),
+    lineUserId,
+    shopId: String(row.shop_id || '').trim(),
+    eventName: String(row.event_name || '').trim(),
+    eventContent: String(row.event_content || '').trim(),
+    pointType: String(row.point_type || '').trim(),
+    getPoint: Number(row.get_point || 0),
+    pointBalance: row.point_balance === undefined || row.point_balance === null || row.point_balance === '' ? null : Number(row.point_balance),
+    createdAt: String(row.created_at || '').trim(),
+    shopUserLineid: String(row.shop_user_lineid || '').trim(),
+    childShopName: String(row.child_shop_name || '').trim(),
+    childShopRenew: String(row.child_shop_renew || '').trim(),
+    shopRemark: String(row.shop_remark || '').trim(),
+    rawJson: JSON.stringify(row),
+  };
+}
+
+function linePointEventStatement(env, event) {
+  return env.DB.prepare(`
+    INSERT INTO line_point_events (
+      id, user_id, line_user_id, shop_id, event_name, event_content, point_type,
+      get_point, point_balance, created_at, shop_user_lineid, child_shop_name,
+      child_shop_renew, shop_remark, raw_json, synced_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      user_id = excluded.user_id,
+      line_user_id = excluded.line_user_id,
+      shop_id = excluded.shop_id,
+      event_name = excluded.event_name,
+      event_content = excluded.event_content,
+      point_type = excluded.point_type,
+      get_point = excluded.get_point,
+      point_balance = excluded.point_balance,
+      created_at = excluded.created_at,
+      shop_user_lineid = excluded.shop_user_lineid,
+      child_shop_name = excluded.child_shop_name,
+      child_shop_renew = excluded.child_shop_renew,
+      shop_remark = excluded.shop_remark,
+      raw_json = excluded.raw_json,
+      synced_at = excluded.synced_at
+  `).bind(
+    event.id,
+    event.userId,
+    event.lineUserId,
+    event.shopId,
+    event.eventName,
+    event.eventContent,
+    event.pointType,
+    event.getPoint,
+    event.pointBalance,
+    event.createdAt,
+    event.shopUserLineid,
+    event.childShopName,
+    event.childShopRenew,
+    event.shopRemark,
+    event.rawJson
+  );
+}
+
+async function fetchLinePointEventPage(env, options = {}) {
+  const apiKey = getPointApiKey(env);
+  if (!apiKey) return { success: false, error: 'MISSING_POINT_API_KEY' };
+  const body = {
+    api_key: apiKey,
+    shop_id: Number(options.shopId || TAINAN_SHOP_ID),
+    page: Number(options.page || 1),
+    per_page: Math.min(Math.max(Number(options.perPage || 100) || 100, 1), 100),
+  };
+  if (options.lineUserId) body.LINE_user_id = String(options.lineUserId);
+  if (options.pointType) body.point_type = String(options.pointType);
+  if (options.dateStart) body.date_start = String(options.dateStart);
+  if (options.dateEnd) body.date_end = String(options.dateEnd);
+  const res = await fetch(POINT_LIST_API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let payload = null;
+  try { payload = JSON.parse(text); } catch (_err) {}
+  if (!res.ok || !payload?.success) {
+    return {
+      success: false,
+      error: payload?.code || `POINT_API_FAILED_${res.status}`,
+      message: payload?.message || text.slice(0, 200),
+    };
+  }
+  return { success: true, data: payload.data || {} };
+}
+
+async function syncLinePointEvents(env, options = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  await ensureLinePointEventsTable(env);
+  const maxPages = Math.min(Math.max(Number(options.maxPages || 100) || 100, 1), 500);
+  const perPage = Math.min(Math.max(Number(options.perPage || 100) || 100, 1), 100);
+  const shopId = Number(options.shopId || TAINAN_SHOP_ID);
+  let page = Math.max(Number(options.page || 1) || 1, 1);
+  let total = 0;
+  let totalPages = 1;
+  let imported = 0;
+  let scanned = 0;
+  const startedPage = page;
+  for (let i = 0; i < maxPages && page <= totalPages; i += 1, page += 1) {
+    const pageResult = await fetchLinePointEventPage(env, {
+      shopId,
+      page,
+      perPage,
+      pointType: options.pointType,
+      dateStart: options.dateStart,
+      dateEnd: options.dateEnd,
+    });
+    if (!pageResult.success) return pageResult;
+    const pagination = pageResult.data.pagination || {};
+    total = Number(pagination.total || total || 0);
+    totalPages = Math.max(1, Number(pagination.total_pages || totalPages || 1));
+    const list = Array.isArray(pageResult.data.list) ? pageResult.data.list : [];
+    scanned += list.length;
+    const statements = list.map(normalizePointEvent).filter(item => item.id && item.lineUserId).map(item => linePointEventStatement(env, item));
+    for (let j = 0; j < statements.length; j += 80) {
+      const chunk = statements.slice(j, j + 80);
+      if (chunk.length) {
+        await env.DB.batch(chunk);
+        imported += chunk.length;
+      }
+    }
+    if (list.length < perPage) break;
+  }
+  const deducted = await env.DB.prepare(`
+    SELECT COUNT(DISTINCT line_user_id) AS count
+    FROM line_point_events
+    WHERE shop_id = ?
+      AND (
+        get_point < 0
+        OR event_name LIKE '%扣%'
+        OR event_name LIKE '%核銷%'
+        OR event_content LIKE '%扣%'
+        OR event_content LIKE '%核銷%'
+      )
+  `).bind(String(shopId)).first();
+  return {
+    success: true,
+    data: {
+      shopId,
+      startedPage,
+      nextPage: page,
+      total,
+      totalPages,
+      scanned,
+      imported,
+      deductedUsers: Number(deducted?.count || 0),
+      syncedAt: new Date().toISOString(),
+    },
+  };
 }
 
 async function ensureCrmPointEventsTable(env) {
@@ -3298,6 +3565,20 @@ export default {
             ...CORS,
           },
         });
+      }
+      if (url.pathname === '/api/crm/sync-line-point-events' && ['GET', 'POST'].includes(request.method)) {
+        const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await syncLinePointEvents(env, {
+          shopId: body.shopId || url.searchParams.get('shopId') || TAINAN_SHOP_ID,
+          page: body.page || url.searchParams.get('page') || 1,
+          maxPages: body.maxPages || url.searchParams.get('maxPages') || 100,
+          perPage: body.perPage || url.searchParams.get('perPage') || 100,
+          pointType: body.pointType || url.searchParams.get('pointType') || '',
+          dateStart: body.dateStart || url.searchParams.get('dateStart') || '',
+          dateEnd: body.dateEnd || url.searchParams.get('dateEnd') || '',
+        }));
       }
       if (url.pathname === '/api/crm/link-clicks' && request.method === 'GET') {
         const auth = await authorizeAdminFromRequest(request, url, env);
