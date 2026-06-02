@@ -463,7 +463,8 @@
       const monthText = quickState.month ? `，月份 ${quickState.month}` : '';
       el('quick-results').hidden = false;
       el('quick-title').textContent = '已取點名單';
-      el('quick-meta').textContent = `已取點 ${overview.claimed || 0} 位，本次載入 ${records.length} 位${monthText}`;
+      const sortText = quickState.sort === 'earliest' ? '，最早優先' : '，最近優先';
+      el('quick-meta').textContent = `已取點 ${overview.claimed || 0} 位，本次載入 ${records.length} 位${monthText}${sortText}`;
       el('quick-table').innerHTML = `
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">
