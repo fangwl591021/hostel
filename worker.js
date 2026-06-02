@@ -1898,6 +1898,7 @@ function crmMemberStatusFromRow(row = {}) {
     status: row.member_status || '',
     tags: row.tags || '',
     latestSummary: formatThreadSummary(row.latest_summary || ''),
+    claimedAt: row.claimed_at || '',
     lastMessageAt: row.last_message_at || '',
     updatedAt: row.updated_at || '',
   };
@@ -1928,8 +1929,8 @@ async function listCrmMemberStatusAudience(env, filters = {}) {
     WHERE source_user_id <> ''
   `).first();
   const orderBy = sort === 'earliest'
-    ? "COALESCE(NULLIF(last_message_at, ''), updated_at) ASC, updated_at ASC"
-    : "COALESCE(NULLIF(last_message_at, ''), updated_at) DESC, updated_at DESC";
+    ? "COALESCE(NULLIF(claimed_at, ''), NULLIF(last_message_at, ''), updated_at) ASC, updated_at ASC"
+    : "COALESCE(NULLIF(claimed_at, ''), NULLIF(last_message_at, ''), updated_at) DESC, updated_at DESC";
   const { results } = await env.DB.prepare(`
     SELECT
       source_user_id AS line_user_id,
@@ -1942,6 +1943,12 @@ async function listCrmMemberStatusAudience(env, filters = {}) {
       END AS member_status,
       tags,
       summary AS latest_summary,
+      (
+        SELECT MAX(lpe.created_at)
+        FROM line_point_events lpe
+        WHERE lpe.line_user_id = line_threads.source_user_id
+          AND lpe.get_point > 0
+      ) AS claimed_at,
       last_message_at,
       updated_at
     FROM line_threads
@@ -1975,6 +1982,7 @@ async function exportCrmMemberStatusAudienceCsv(env, filters = {}) {
     ['lineUserId', 'LINE UID'],
     ['displayName', '名稱'],
     ['status', '母站狀態'],
+    ['claimedAt', '領點時間'],
     ['tags', '標籤'],
     ['latestSummary', '最新摘要'],
     ['lastMessageAt', '最後訊息時間'],

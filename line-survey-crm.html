@@ -635,7 +635,7 @@
       const pageRows = records.slice((quickState.page - 1) * QUICK_PAGE_SIZE, quickState.page * QUICK_PAGE_SIZE);
       el('quick-results').hidden = false;
       el('quick-title').textContent = '母站最新已領點名單';
-      el('quick-meta').textContent = `母站狀態：已領點 ${overview.claimed || 0} 位、未領點 ${overview.unclaimed || 0} 位、已註冊 ${overview.registered || 0} 位；本次載入 ${records.length} 位。母站會員 API 目前不提供領取月份。`;
+      el('quick-meta').textContent = `母站狀態：已領點 ${overview.claimed || 0} 位、未領點 ${overview.unclaimed || 0} 位、已註冊 ${overview.registered || 0} 位；本次載入 ${records.length} 位。母站會員 API 目前不提供領取月份；領點時間以點數明細 API 回傳為準，沒有明細時顯示「母站未提供」。`;
       el('quick-table').innerHTML = `
         <table class="min-w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">
@@ -643,6 +643,7 @@
               <th class="text-left px-4 py-3">LINE UID</th>
               <th class="text-left px-4 py-3">姓名</th>
               <th class="text-left px-4 py-3">母站狀態</th>
+              <th class="text-left px-4 py-3">領點時間</th>
               <th class="text-left px-4 py-3">最新摘要</th>
               <th class="text-left px-4 py-3">同步更新</th>
               <th class="text-left px-4 py-3">標籤</th>
@@ -654,6 +655,7 @@
                 <td class="px-4 py-3 text-xs text-slate-500">${escapeHtml(r.lineUserId || '-')}</td>
                 <td class="px-4 py-3 font-bold">${escapeHtml(r.displayName || '-')}</td>
                 <td class="px-4 py-3">${escapeHtml(r.status || '-')}</td>
+                <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.claimedAt || '').replace('T', ' ').slice(0, 19) || '母站未提供')}</td>
                 <td class="px-4 py-3">${escapeHtml(r.latestSummary || '-')}</td>
                 <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.updatedAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
                 <td class="px-4 py-3 max-w-[360px] text-xs text-slate-500">${escapeHtml(r.tags || '-')}</td>
