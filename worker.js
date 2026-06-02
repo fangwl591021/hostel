@@ -1886,6 +1886,96 @@ async function exportCrmShareQrActionsCsv(env, filters = {}) {
   return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
 }
 
+function crmMemberStatusFromRow(row = {}) {
+  return {
+    lineUserId: row.line_user_id || '',
+    displayName: row.display_name || '',
+    status: row.member_status || '',
+    tags: row.tags || '',
+    latestSummary: formatThreadSummary(row.latest_summary || ''),
+    lastMessageAt: row.last_message_at || '',
+    updatedAt: row.updated_at || '',
+  };
+}
+
+async function listCrmMemberStatusAudience(env, filters = {}) {
+  if (!env.DB) throw new Error('D1 binding missing');
+  const status = String(filters.status || 'claimed').trim();
+  const search = String(filters.search || '').trim();
+  const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 20000));
+  const clauses = ["source_user_id <> ''"];
+  const values = [];
+  if (status === 'claimed') clauses.push("(',' || tags || ',') LIKE '%已領點%'");
+  if (status === 'unclaimed') clauses.push("(',' || tags || ',') LIKE '%未領點%'");
+  if (status === 'registered') clauses.push("(',' || tags || ',') LIKE '%已註冊%'");
+  if (search) {
+    clauses.push('(source_user_id LIKE ? OR display_name LIKE ? OR tags LIKE ? OR summary LIKE ?)');
+    values.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  const overview = await env.DB.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN (',' || tags || ',') LIKE '%已領點%' THEN 1 ELSE 0 END) AS claimed,
+      SUM(CASE WHEN (',' || tags || ',') LIKE '%未領點%' THEN 1 ELSE 0 END) AS unclaimed,
+      SUM(CASE WHEN (',' || tags || ',') LIKE '%已註冊%' THEN 1 ELSE 0 END) AS registered
+    FROM line_threads
+    WHERE source_user_id <> ''
+  `).first();
+  const { results } = await env.DB.prepare(`
+    SELECT
+      source_user_id AS line_user_id,
+      display_name,
+      CASE
+        WHEN (',' || tags || ',') LIKE '%已領點%' THEN '已領點'
+        WHEN (',' || tags || ',') LIKE '%未領點%' THEN '未領點'
+        WHEN (',' || tags || ',') LIKE '%已註冊%' THEN '已註冊'
+        ELSE '加入會員'
+      END AS member_status,
+      tags,
+      summary AS latest_summary,
+      last_message_at,
+      updated_at
+    FROM line_threads
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY updated_at DESC, last_message_at DESC
+    LIMIT ?
+  `).bind(...values, limit).all();
+  return {
+    success: true,
+    data: {
+      generatedAt: new Date().toISOString(),
+      status,
+      overview: {
+        total: Number(overview?.total || 0),
+        claimed: Number(overview?.claimed || 0),
+        unclaimed: Number(overview?.unclaimed || 0),
+        registered: Number(overview?.registered || 0),
+      },
+      count: (results || []).length,
+      records: (results || []).map(crmMemberStatusFromRow),
+      note: '母站會員 API 目前提供最新狀態，不提供領取月份。',
+    },
+  };
+}
+
+async function exportCrmMemberStatusAudienceCsv(env, filters = {}) {
+  const result = await listCrmMemberStatusAudience(env, { ...filters, limit: filters.limit || 20000 });
+  if (!result.success) return result;
+  const headers = [
+    ['lineUserId', 'LINE UID'],
+    ['displayName', '名稱'],
+    ['status', '母站狀態'],
+    ['tags', '標籤'],
+    ['latestSummary', '最新摘要'],
+    ['lastMessageAt', '最後訊息時間'],
+    ['updatedAt', '同步更新時間'],
+  ];
+  const lines = [
+    headers.map(([, label]) => csvCell(label)).join(','),
+    ...result.data.records.map(record => headers.map(([key]) => csvCell(record[key])).join(',')),
+  ];
+  return { success: true, csv: `\uFEFF${lines.join('\r\n')}` };
+}
 async function ensureLinePointEventsTable(env) {
   if (!env.DB) throw new Error('D1 binding missing');
   await env.DB.prepare(`
@@ -3718,7 +3808,25 @@ export default {
           },
         });
       }
-      if (url.pathname === '/api/crm/sync-line-point-events' && ['GET', 'POST'].includes(request.method)) {
+      if (url.pathname === '/api/crm/member-status' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        return json(await listCrmMemberStatusAudience(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true }));
+      }
+      if (url.pathname === '/api/crm/member-status/export.csv' && request.method === 'GET') {
+        const auth = await authorizeAdminFromRequest(request, url, env);
+        if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);
+        const result = await exportCrmMemberStatusAudienceCsv(env, { ...Object.fromEntries(url.searchParams.entries()), authorized: true });
+        if (!result.success) return json(result, 403);
+        return new Response(result.csv, {
+          headers: {
+            'Content-Type': 'text/csv; charset=UTF-8',
+            'Content-Disposition': 'attachment; filename="member-status-audience.csv"',
+            'Cache-Control': 'no-store',
+            ...CORS,
+          },
+        });
+      }      if (url.pathname === '/api/crm/sync-line-point-events' && ['GET', 'POST'].includes(request.method)) {
         const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
         const auth = await authorizeAdminFromRequest(request, url, env);
         if (!auth.ok) return json({ success: false, error: auth.error }, auth.status);

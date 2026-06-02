@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
@@ -445,6 +445,7 @@
       if (quickState.type === 'points') return renderQuickPoints();
       if (quickState.type === 'pushAudience') return renderQuickPushAudience();
       if (quickState.type === 'shareQr') return renderQuickShareQr();
+      if (quickState.type === 'memberStatus') return renderQuickMemberStatus();
     }
     function renderQuickCustomers() {
       const records = quickState.records || [];
@@ -616,7 +617,58 @@
       `;
       bindQuickPager();
     }
-    function shareQrParams(limit = '10000') {
+    function renderQuickMemberStatus() {
+      const records = quickState.records || [];
+      const overview = quickState.overview || {};
+      const pageCount = Math.max(1, Math.ceil(records.length / QUICK_PAGE_SIZE));
+      quickState.page = Math.min(Math.max(1, quickState.page), pageCount);
+      const pageRows = records.slice((quickState.page - 1) * QUICK_PAGE_SIZE, quickState.page * QUICK_PAGE_SIZE);
+      el('quick-results').hidden = false;
+      el('quick-title').textContent = '母站最新已領點名單';
+      el('quick-meta').textContent = `母站狀態：已領點 ${overview.claimed || 0} 位、未領點 ${overview.unclaimed || 0} 位、已註冊 ${overview.registered || 0} 位；本次載入 ${records.length} 位。母站會員 API 目前不提供領取月份。`;
+      el('quick-table').innerHTML = `
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500">
+            <tr>
+              <th class="text-left px-4 py-3">LINE UID</th>
+              <th class="text-left px-4 py-3">姓名</th>
+              <th class="text-left px-4 py-3">母站狀態</th>
+              <th class="text-left px-4 py-3">最新摘要</th>
+              <th class="text-left px-4 py-3">同步更新</th>
+              <th class="text-left px-4 py-3">標籤</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            ${pageRows.map(r => `
+              <tr class="hover:bg-slate-50">
+                <td class="px-4 py-3 text-xs text-slate-500">${escapeHtml(r.lineUserId || '-')}</td>
+                <td class="px-4 py-3 font-bold">${escapeHtml(r.displayName || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.status || '-')}</td>
+                <td class="px-4 py-3">${escapeHtml(r.latestSummary || '-')}</td>
+                <td class="px-4 py-3 whitespace-nowrap">${escapeHtml((r.updatedAt || '').replace('T', ' ').slice(0, 19) || '-')}</td>
+                <td class="px-4 py-3 max-w-[360px] text-xs text-slate-500">${escapeHtml(r.tags || '-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ${quickPagerHtml(quickState.page, pageCount, records.length)}
+      `;
+      bindQuickPager();
+    }
+    async function loadMemberStatusList(status = 'claimed') {
+      if (!authenticated) throw new Error('請先登入 CRM');
+      setStatus('載入母站會員狀態中...');
+      const p = new URLSearchParams({ status, limit: '10000' });
+      if (el('customer-search').value.trim()) p.set('search', el('customer-search').value.trim());
+      const res = await fetch(`/api/crm/member-status?${p}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(friendlyError(data.error));
+      const payload = data.data || {};
+      quickState = { type: 'memberStatus', page: 1, records: payload.records || [], overview: payload.overview || {} };
+      renderQuickMemberStatus();
+      setStatus(`已載入母站已領點 ${payload.count || 0} 筆`);
+      document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }    function shareQrParams(limit = '10000') {
       const p = new URLSearchParams({ limit });
       if (el('share-mode').value) p.set('mode', el('share-mode').value);
       if (el('share-search').value.trim()) p.set('search', el('share-search').value.trim());
@@ -702,6 +754,11 @@
       el('customer-claimed').value = '1';
       el('customer-search').value = '';
       const payload = await loadCustomers('10000');
+      if ((payload.records || []).length === 0 && el('point-month').value) {
+        setStatus('該月份在 Excel 客戶表無資料，改載入母站最新已領點狀態。');
+        await loadMemberStatusList('claimed');
+        return;
+      }
       quickState = { type: 'customers', page: 1, records: payload.records || [], overview: payload.overview || {}, month: el('point-month').value || '' };
       renderQuickCustomers();
       document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
