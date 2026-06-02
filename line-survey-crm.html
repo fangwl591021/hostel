@@ -87,6 +87,12 @@
           <label class="block text-sm font-bold text-slate-600">月份
             <input id="point-month" type="month" class="mt-1 rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
           </label>
+          <label class="block text-sm font-bold text-slate-600">已取點排序
+            <select id="claimed-sort" class="mt-1 rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500">
+              <option value="latest">最近優先</option>
+              <option value="earliest">最早優先</option>
+            </select>
+          </label>
           <button id="quick-claimed" type="button" data-auth-action class="rounded-xl bg-sky-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已取點名單</button>
           <button id="quick-deducted" type="button" data-auth-action class="rounded-xl bg-violet-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">已扣點名單</button>
           <button id="quick-push-audience" type="button" data-auth-action class="rounded-xl bg-emerald-600 text-white px-5 py-3 font-bold disabled:bg-slate-300 disabled:cursor-not-allowed">未扣點推播名單</button>
@@ -399,6 +405,7 @@
       if (el('customer-search').value.trim()) p.set('search', el('customer-search').value.trim());
       if (el('customer-claimed').value !== '') p.set('claimed', el('customer-claimed').value);
       if (el('point-month').value) p.set('month', el('point-month').value);
+      if (el('claimed-sort')?.value) p.set('sort', el('claimed-sort').value);
       return p;
     }
     function renderCustomers(payload = {}) {
@@ -503,6 +510,7 @@
       if (el('point-search').value.trim()) p.set('search', el('point-search').value.trim());
       if (el('point-event').value) p.set('eventName', el('point-event').value);
       if (el('point-month').value) p.set('month', el('point-month').value);
+      if (el('claimed-sort')?.value) p.set('sort', el('claimed-sort').value);
       return p;
     }
     function renderPoints(payload = {}) {
@@ -576,6 +584,7 @@
     function audienceParams(limit = '1000') {
       const p = new URLSearchParams({ limit, pushable: '0' });
       if (el('point-month').value) p.set('month', el('point-month').value);
+      if (el('claimed-sort')?.value) p.set('sort', el('claimed-sort').value);
       return p;
     }
     function renderQuickPushAudience() {
@@ -664,7 +673,7 @@
       const data = await res.json();
       if (!data.success) throw new Error(friendlyError(data.error));
       const payload = data.data || {};
-      quickState = { type: 'memberStatus', page: 1, records: payload.records || [], overview: payload.overview || {} };
+      quickState = { type: 'memberStatus', page: 1, records: payload.records || [], overview: payload.overview || {}, sort: payload.sort || el('claimed-sort')?.value || 'latest' };
       renderQuickMemberStatus();
       setStatus(`已載入母站已領點 ${payload.count || 0} 筆`);
       document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -759,7 +768,7 @@
         await loadMemberStatusList('claimed');
         return;
       }
-      quickState = { type: 'customers', page: 1, records: payload.records || [], overview: payload.overview || {}, month: el('point-month').value || '' };
+      quickState = { type: 'customers', page: 1, records: payload.records || [], overview: payload.overview || {}, month: el('point-month').value || '', sort: el('claimed-sort')?.value || 'latest' };
       renderQuickCustomers();
       document.getElementById('quick-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -861,7 +870,11 @@
     });
     el('download-claimed').addEventListener('click', () => {
       el('customer-claimed').value = '1';
-      location.href = `/api/crm/customers/export.csv?${customerParams()}`;
+      if (el('point-month').value) {
+        location.href = `/api/crm/member-status/export.csv?status=claimed&limit=20000&sort=${encodeURIComponent(el('claimed-sort')?.value || 'latest')}`;
+      } else {
+        location.href = `/api/crm/customers/export.csv?${customerParams()}`;
+      }
     });
     el('download-deducted').addEventListener('click', () => {
       el('point-event').value = '住房扣抵';

@@ -1566,6 +1566,7 @@ async function listCrmCustomers(env, filters = {}) {
   const residenceArea = String(filters.residenceArea || filters.residence_area || '').trim();
   const claimed = String(filters.claimed ?? '').trim();
   const month = String(filters.month || filters.claimedMonth || filters.claimed_month || '').trim();
+  const sort = String(filters.sort || 'latest').trim();
   const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 10000));
   const clauses = ['1 = 1'];
   const values = [];
@@ -1598,19 +1599,23 @@ async function listCrmCustomers(env, filters = {}) {
     FROM crm_customers
     WHERE ${clauses.join(' AND ')}
   `).bind(...values).first();
+  const orderBy = claimed === '1'
+    ? (sort === 'earliest'
+      ? "datetime(replace(claimed_at, '/', '-')) ASC, CAST(member_id AS INTEGER) ASC"
+      : "datetime(replace(claimed_at, '/', '-')) DESC, CAST(member_id AS INTEGER) ASC")
+    : "CASE WHEN claimed_at <> '' THEN 0 ELSE 1 END, CAST(member_id AS INTEGER) ASC";
   const { results } = await env.DB.prepare(`
     SELECT *
     FROM crm_customers
     WHERE ${clauses.join(' AND ')}
-    ORDER BY
-      CASE WHEN claimed_at <> '' THEN 0 ELSE 1 END,
-      CAST(member_id AS INTEGER) ASC
+    ORDER BY ${orderBy}
     LIMIT ?
   `).bind(...values, limit).all();
   return {
     success: true,
     data: {
       generatedAt: new Date().toISOString(),
+      sort,
       overview: {
         total: Number(overview?.total || 0),
         claimed: Number(overview?.claimed || 0),
@@ -1902,6 +1907,7 @@ async function listCrmMemberStatusAudience(env, filters = {}) {
   if (!env.DB) throw new Error('D1 binding missing');
   const status = String(filters.status || 'claimed').trim();
   const search = String(filters.search || '').trim();
+  const sort = String(filters.sort || 'latest').trim();
   const limit = Math.max(1, Math.min(Number(filters.limit || 500) || 500, 20000));
   const clauses = ["source_user_id <> ''"];
   const values = [];
@@ -1921,6 +1927,9 @@ async function listCrmMemberStatusAudience(env, filters = {}) {
     FROM line_threads
     WHERE source_user_id <> ''
   `).first();
+  const orderBy = sort === 'earliest'
+    ? "COALESCE(NULLIF(last_message_at, ''), updated_at) ASC, updated_at ASC"
+    : "COALESCE(NULLIF(last_message_at, ''), updated_at) DESC, updated_at DESC";
   const { results } = await env.DB.prepare(`
     SELECT
       source_user_id AS line_user_id,
@@ -1937,7 +1946,7 @@ async function listCrmMemberStatusAudience(env, filters = {}) {
       updated_at
     FROM line_threads
     WHERE ${clauses.join(' AND ')}
-    ORDER BY updated_at DESC, last_message_at DESC
+    ORDER BY ${orderBy}
     LIMIT ?
   `).bind(...values, limit).all();
   return {
@@ -1945,6 +1954,7 @@ async function listCrmMemberStatusAudience(env, filters = {}) {
     data: {
       generatedAt: new Date().toISOString(),
       status,
+      sort,
       overview: {
         total: Number(overview?.total || 0),
         claimed: Number(overview?.claimed || 0),
