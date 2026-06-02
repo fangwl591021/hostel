@@ -9,7 +9,7 @@ const ADMIN_UIDS = new Set([
   'U58eb5c1a747450140ce1335af709ae55',
   'Ue7a07fe317565389fbf4479172088f87',
 ]);
-const GITHUB_HTML_REF = 'main';
+const GITHUB_HTML_REF = '85fedb868c1f8b0fcc1ed5b69d8d30cee9581ab8';
 const WORKER_PUBLIC_URL = 'https://hotel.fangwl591021.workers.dev';
 const POINTS_ACTIVITY_URL = 'https://tainantravels.net/accommodations';
 const TAINAN_TOURISM_NEWS_URL = 'https://www.twtainan.net/zh-tw/event/news/';
