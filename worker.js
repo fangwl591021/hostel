@@ -632,6 +632,43 @@ function mergeTagValues(existing = '', additions = []) {
   return [...new Set(values)].join(',');
 }
 
+async function applyPointStatusThreadTags(env) {
+  if (!env.DB) return { claimedTagged: 0, deductedTagged: 0 };
+  await ensureLinePointEventsTable(env);
+  const claimed = await env.DB.prepare(`
+    UPDATE line_threads
+    SET tags = trim(tags || CASE WHEN tags = '' THEN '取點成功' ELSE ',取點成功' END, ','),
+        updated_at = datetime('now')
+    WHERE source_user_id <> ''
+      AND (',' || tags || ',') LIKE '%,已領點,%'
+      AND (',' || tags || ',') NOT LIKE '%,取點成功,%'
+  `).run();
+  const deducted = await env.DB.prepare(`
+    UPDATE line_threads
+    SET tags = trim(tags || CASE WHEN tags = '' THEN '已扣點數' ELSE ',已扣點數' END, ','),
+        updated_at = datetime('now')
+    WHERE source_user_id <> ''
+      AND (',' || tags || ',') NOT LIKE '%,已扣點數,%'
+      AND EXISTS (
+        SELECT 1
+        FROM line_point_events lpe
+        WHERE lpe.line_user_id = line_threads.source_user_id
+          AND lpe.shop_id = ?
+          AND (
+            lpe.get_point < 0
+            OR lpe.event_name LIKE '%扣%'
+            OR lpe.event_name LIKE '%核銷%'
+            OR lpe.event_content LIKE '%扣%'
+            OR lpe.event_content LIKE '%核銷%'
+          )
+      )
+  `).bind(String(TAINAN_SHOP_ID)).run();
+  return {
+    claimedTagged: Number(claimed?.meta?.changes || 0),
+    deductedTagged: Number(deducted?.meta?.changes || 0),
+  };
+}
+
 function safeDecodeURIComponent(value = '') {
   const text = String(value || '');
   try {
@@ -2177,6 +2214,7 @@ async function syncLinePointEvents(env, options = {}) {
         OR event_content LIKE '%核銷%'
       )
   `).bind(String(shopId)).first();
+  const tagSync = await applyPointStatusThreadTags(env);
   return {
     success: true,
     data: {
@@ -2188,6 +2226,7 @@ async function syncLinePointEvents(env, options = {}) {
       scanned,
       imported,
       deductedUsers: Number(deducted?.count || 0),
+      tagSync,
       syncedAt: new Date().toISOString(),
     },
   };
@@ -2665,11 +2704,13 @@ async function importMembersToMonitor(env, type = 'all') {
       imported += chunk.length;
     }
   }
+  const tagSync = await applyPointStatusThreadTags(env);
   return {
     success: true,
     data: {
       imported,
       typeCounts,
+      tagSync,
       source: 'shop_id=2500',
       syncedAt: new Date().toISOString(),
     },
@@ -2920,6 +2961,7 @@ function authorizeAdminFromQuery(url) {
 
 async function getThreads(env) {
   if (!env.DB) throw new Error('D1 binding missing');
+  await applyPointStatusThreadTags(env);
   const { results } = await env.DB.prepare(`
     SELECT id, display_name, picture_url, source_user_id, source_group_id, status,
            risk_level, summary, unread_count, tags, note, last_message_at
@@ -2948,6 +2990,7 @@ async function getThreads(env) {
 
 async function getThread(env, threadId) {
   if (!env.DB) throw new Error('D1 binding missing');
+  await applyPointStatusThreadTags(env);
   const row = await env.DB.prepare(`
     SELECT *
     FROM line_threads
